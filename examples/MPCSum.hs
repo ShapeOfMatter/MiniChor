@@ -10,6 +10,7 @@ import Control.Monad
 import System.Environment
 import Logic.Propositional (introAnd)
 import CLI
+import Choreography.Network.Local (LocalConfig(LocalConfig), mkLocalConfig)
 
 -- Multiple servers
 -- Multiple clients
@@ -90,3 +91,10 @@ main = do
     cfg = mkHttpConfig [ ("client1",  ("localhost", 4242))
                        , ("client2", ("localhost", 4343))
                        ]
+
+test :: IO ()
+test = do
+  let locs = ["client1", "client2"] -- TODO
+  cfg <- mkLocalConfig locs
+  runCLIIO $ runChoreography cfg p2pSum "client1"
+  runCLIIO $ runChoreography cfg p2pSum "client2"

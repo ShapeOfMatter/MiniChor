@@ -96,6 +96,23 @@ epp c l' = interpFreer handler c
     handler (Naked proof a) =  -- Should we have guards here? If `Naked` is safe, then we shouldn't need them...
       return $ unwrap proof a
 
+-- | Endpoint projection test variant
+eppTest :: Choreo ps m a -> LocTm -> Network m a
+eppTest c l' = interpFreer handler c
+  where
+    handler :: ChoreoSig ps m a -> Network m a
+    handler (Local l m)
+      | toLocTm l == l' = wrap <$> run (m $ unwrap . (@@ nobody))
+      | otherwise       = return Empty
+    handler (Comm s a rs) = do
+      let sender = toLocTm $ elimAndR s
+      let otherRecipients = sender `delete` toLocs rs
+      when (sender == l') $ send (unwrap (elimAndL s @@ nobody) a) otherRecipients
+      case () of  -- Is there a better way to write this?
+        _ | l' `elem` otherRecipients -> wrap <$> recv sender
+          | l' == sender              -> return . wrap . unwrap (elimAndL s @@ nobody) $ a
+          | otherwise                 -> return Empty
+
 -- * Choreo operations
 
 -- | Perform a local computation at a given location.
@@ -140,6 +157,14 @@ cond :: (KnownSymbols ls)
                           -- choreographies based on the value of scrutinee.
      -> Choreo ps m (Located ls b)
 cond (l, a) c = enclave (elimAndR l) $ naked (elimAndL l) a >>= c
+
+-- | Conditionally execute choreographies based on a located value.
+condTest :: (KnownSymbols ls)
+     => (Proof (IsSubset ls qs && IsSubset ls ps), Located qs a)
+     -> (a -> Choreo ls m b) -- ^ A function that describes the follow-up
+                          -- choreographies based on the value of scrutinee.
+     -> Choreo ps m (Located ls b)
+condTest (l, a) c = enclave (elimAndR l) $ naked (elimAndL l) a >>= c
 
 -- | A variant of `~>` that sends the result of a local computation.
 (~~>) :: (Show a, Read a, KnownSymbol l, KnownSymbols ls')
@@ -191,3 +216,12 @@ _locally_ :: (KnownSymbol l) => Member l ps -> m () -> Choreo ps m ()
 infix 4 `_locally_`
 _locally_ l m = void $ locally l (const m)
 
+
+-- | Run a test `Choreo` monad that collects transcripts (views)
+runTestChoreo :: Monad m => Choreo ps m a -> m a
+runTestChoreo = interpFreer handler
+  where
+    handler :: Monad m => ChoreoSig ps m a -> m a
+    handler (Local _ m)  = wrap <$> m (unwrap . (@@ nobody))
+    handler (Comm l a _) = return $ (wrap . unwrap (elimAndL l @@ nobody)) a
+    -- TODO rest
