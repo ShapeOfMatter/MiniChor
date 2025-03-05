@@ -21,7 +21,6 @@ module Choreography.Core
     Located (),
     Unwrap,
     Unwraps,
-    othersForget,
     wrap, -- consider renaming or removing.
   )
 where
@@ -59,11 +58,6 @@ type Unwraps (qs :: [LocTy]) = forall ls a. Subset qs ls -> Located ls a -> a
 unwrap :: Unwrap q
 unwrap _ (Wrap a) = a
 unwrap _ Empty = error "Located: This should never happen for a well-typed choreography."
-
--- | Cast a `Located` value to a smaller ownership set; useful when working with functions whos arguments have explict ownership sets.
-othersForget :: Subset ls owners -> Located owners a -> Located ls a
-othersForget _ Empty = Empty
-othersForget _ (Wrap a) = Wrap a
 
 data Choreo (ps :: [LocTy]) m a where
   Locally ::

@@ -71,6 +71,14 @@ flatten :: (KnownSymbols ls)
 flatten present ownsOuter ownsInner nested =
     enclave present $ naked ownsOuter nested >>= naked ownsInner
 
+-- | Cast a `Located` value to a smaller ownership set; useful when working with functions whos arguments have explict ownership sets.
+othersForget :: (KnownSymbols ls)
+             => Subset ls census
+             -> Subset ls owners
+             -> Located owners a
+             -> Choreo census m (Located ls a)
+othersForget present owns located = enclave present $ naked owns located
+
 
 -- * Communication
 

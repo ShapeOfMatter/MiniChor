@@ -94,7 +94,7 @@ secretShare ::
 secretShare p value = do
   shares <- locally p \un -> genShares p (un singleton value)
   PIndexed fs <- scatter p (allOf @parties) shares
-  return $ PIndexed $ Facet . othersForget (First @@ nobody) . getFacet . fs
+  fanOut (\q -> othersForget (q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
 
 reveal :: forall ps m. (KnownSymbols ps) => Faceted ps '[] Bool -> Choreo ps m Bool
 reveal shares = xor <$> (gather ps ps shares >>= naked ps)

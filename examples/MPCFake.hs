@@ -81,7 +81,7 @@ secretShare ::
 secretShare parties p (ownership, value) = do
   shares <- p `locally` \un -> genShares (un ownership value)
   PIndexed fs <- scatter p parties shares
-  return $ PIndexed $ Facet . othersForget (First @@ nobody) . getFacet . fs
+  fanOut (\q -> othersForget (inSuper parties q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
   where
     genShares x = case tySpine @parties of
       TyCons -> gs'
