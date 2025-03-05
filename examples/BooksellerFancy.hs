@@ -33,12 +33,13 @@ bookseller mkDecision = do
   price <- (seller, \un -> return $ priceOf (un seller database) (un seller title)) ~~> buyer @@ nobody
 
   -- the buyer and supporters (transactors) make a decision using the `mkDecision` choreography
-  decision <- enclave transactors $ mkDecision price
+  decision <- enclave transactors (mkDecision price)
+                  >>= flatten (buyer @@ nobody) explicitSubset allOf
 
   -- if the buyer decides to buy the book, the seller sends the delivery date to the buyer
   _ <-
     enclave buyerAndSeller $
-      broadcast (buyer, flatten explicitSubset allOf decision) >>= \case
+      broadcast (buyer, decision) >>= \case
         True -> do
           deliveryDate <- (seller, \un -> return $ deliveryDateOf (un seller database) (un seller title)) ~~> buyer @@ nobody
           buyer `locally_` \un -> putstr "The book will be delivered on:" $ show (un buyer deliveryDate)

@@ -67,7 +67,8 @@ kvs ::
 kvs request stateRefs = do
   request' <- (client, request) ~> primary @@ nobody
   response <- enclave (primary @@ backups) (handleRequest request' stateRefs)
-  (primary, flatten (First @@ nobody) (First @@ nobody) response) ~> client @@ nobody
+                  >>= flatten (listedSecond @@ nobody) (First @@ nobody) (First @@ nobody)
+  (primary, response) ~> client @@ nobody
   where
     client :: forall ps. Member "client" ("client" ': ps)
     primary :: forall ps p. Member "primary" (p ': "primary" ': ps)

@@ -72,11 +72,11 @@ carrollsDefault = const "No Handler"
 mainCho :: Choreo Participants (CLI m) ()
 mainCho = do
   choice <- (alice, getInput "Alice's choice:") -~> alice @@ bob @@ nobody
-  query <-
-    flatten (alice @@ nobody) (alice @@ nobody)
-      <$> cond (explicitSubset, (refl, choice)) \case
+  query <- cond (explicitSubset, (refl, choice)) (
+      \case
         False -> (bob, getstr "Bob's query:") -~> alice @@ nobody
         True -> alice `_locally` getstr "Alice's query:"
+    ) >>= flatten (alice @@ nobody) (alice @@ nobody) (alice @@ nobody)
   answerer <-
     carroll `_locally` do
       handlerName <- getstr "Carrol's function (reverse or alphabetize):"

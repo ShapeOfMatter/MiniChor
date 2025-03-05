@@ -61,6 +61,17 @@ naked ::
   Choreo ps m a
 naked ownership a = congruently' (\un -> un ownership a)
 
+-- | Un-nest located values.
+flatten :: (KnownSymbols ls)
+        => Subset ls census
+        -> Subset ls ms
+        -> Subset ls ns
+        -> Located ms (Located ns a)
+        -> Choreo census m (Located ls a)
+flatten present ownsOuter ownsInner nested =
+    enclave present $ naked ownsOuter nested >>= naked ownsInner
+
+
 -- * Communication
 
 -- | Writing out the first argument to `~>` can be done a few different ways depending on context, represented by this class.
@@ -146,7 +157,8 @@ enclaveToAll = (`enclaveTo` (refl @ls))
 --   This version, where the returned value is already Located, does not add a Located layer.
 enclaveTo ::
   forall ls a rs ps m.
-  (KnownSymbols ls) =>
+  (KnownSymbols ls,
+   KnownSymbols rs) =>
   Subset ls ps ->
   Subset rs ls ->
   Choreo ls m (Located rs a) ->
@@ -154,4 +166,5 @@ enclaveTo ::
 
 infix 4 `enclaveTo`
 
-enclaveTo subcensus recipients ch = flatten recipients (refl @rs) <$> (subcensus `enclave` ch)
+enclaveTo subcensus recipients ch = do nested <- subcensus `enclave` ch
+                                       flatten (recipients `transitive` subcensus) recipients (refl @rs) nested

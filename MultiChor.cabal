@@ -90,6 +90,7 @@ common example
         , QuickCheck >= 2.14 && < 3
     other-modules: Distribution.TestSuite.QuickCheck
                  , CLI
+                 , Data
 
 Test-Suite testExamples
     import: example
