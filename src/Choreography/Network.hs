@@ -4,48 +4,51 @@
 -- multiple message transport backends.
 -- Two such backends are provided in "Choreography.Network.Http" and "Choreography.Network.Local",
 -- and there should be enough tools here for you to write more as needed.
-module Choreography.Network where
+module Choreography.Network (
+  Network(
+  Run,
+  Send,
+  Recv,
+  Bind,
+  Return),
+  Backend(runNetwork)
+) where
 
 import Choreography.Locations (LocTm)
-import Control.Monad.Freer
 import Control.Monad.IO.Class
 
 -- * The Network monad
 
 -- | Effect signature for the `Network` monad.
-data NetworkSig m a where
+data Network m a where
   -- | Local computation.
   Run ::
     m a ->
-    NetworkSig m a
+    Network m a
   -- | Sending.
   Send ::
     (Show a) =>
     a ->
     [LocTm] ->
-    NetworkSig m ()
+    Network m ()
   -- | Receiving.
   Recv ::
     (Read a) =>
     LocTm ->
-    NetworkSig m a
+    Network m a
+  Return :: a -> Network m a
+  Bind :: Network m a -> (a -> Network m b) -> Network m b
 
--- | Monad that represents network programs.
-type Network m = Freer (NetworkSig m)
+instance Functor (Network m) where
+  fmap f net = Bind net (Return . f ) 
 
--- * Network operations
+instance Applicative (Network m) where
+  pure = Return
+  netf <*> neta = Bind netf (\f -> Bind neta (Return . f))
 
--- | Perform a local computation.
-run :: m a -> Network m a
-run m = toFreer $ Run m
+instance Monad (Network m) where
+  (>>=) = Bind
 
--- | Send a message to a receiver.
-send :: (Show a) => a -> [LocTm] -> Network m ()
-send a ls = toFreer $ Send a ls
-
--- | Receive a message from a sender.
-recv :: (Read a) => LocTm -> Network m a
-recv l = toFreer $ Recv l
 
 -- * Message transport backends
 

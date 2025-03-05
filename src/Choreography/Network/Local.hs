@@ -5,7 +5,6 @@ import Choreography.Locations
 import Choreography.Network
 import Control.Concurrent
 import Control.Monad
-import Control.Monad.Freer
 import Control.Monad.IO.Class
 import Data.HashMap.Strict (HashMap, (!), (!?))
 import Data.HashMap.Strict qualified as HashMap
@@ -44,9 +43,9 @@ locs = HashMap.keys . locToBuf
 -- | Run a `Network` behavior using the channels in a t`LocalConfig` for communication.
 --   Call this inside a concurrent thread.
 runNetworkLocal :: (MonadIO m) => LocalConfig -> LocTm -> Network m a -> m a
-runNetworkLocal cfg self = interpFreer handler
+runNetworkLocal cfg self = handler
   where
-    handler :: (MonadIO m) => NetworkSig m a -> m a
+    handler :: (MonadIO m) => Network m a -> m a
     handler (Run m) = m
     handler (Send a ls) = liftIO $ mapM_ (\l -> writeChan ((locToBuf cfg ! l) ! self) (show a)) ls
     handler (Recv l) = do
@@ -58,6 +57,8 @@ runNetworkLocal cfg self = interpFreer handler
           print $ void b
           print l
           error $ "We don't know how to contact the party named \"" <> l <> "\"."
+    handler (Return a) = pure a
+    handler (Bind m cont) = handler m >>= handler . cont
 
 instance Backend LocalConfig where
   runNetwork = runNetworkLocal

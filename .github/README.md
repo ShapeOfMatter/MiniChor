@@ -3,7 +3,7 @@ This is a fork of it for exploring the ramifications of more minimal foundationa
 
 ## Goals
 
-- [ ] Remove the freer monad system
+- [x] Remove the freer monad system
   - Why? I'm not sure this actually offers any "research" advantage...
 - [ ] Derive `flatten` and `othersForget`.
 - [ ] Replace `congruently` with `naked` (and simplify `locally` and remove `Unwrap(s)`).

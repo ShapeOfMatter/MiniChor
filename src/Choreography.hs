@@ -16,10 +16,10 @@ where
 
 import Choreography.Choreography
 import Choreography.Choreography.Batteries
-import Choreography.Core
+import Choreography.Core hiding (Bind, Return)
 import Choreography.Locations
 import Choreography.Locations.Batteries
-import Choreography.Network
+import Choreography.Network hiding (Bind, Return)
 import Choreography.Polymorphism
 import Control.Monad.IO.Class (MonadIO)
 

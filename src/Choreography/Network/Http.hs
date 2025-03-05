@@ -3,10 +3,9 @@
 module Choreography.Network.Http where
 
 import Choreography.Locations
-import Choreography.Network hiding (run, send)
+import Choreography.Network
 import Control.Concurrent
 import Control.Monad
-import Control.Monad.Freer
 import Control.Monad.IO.Class
 import Data.Either (lefts)
 import Data.HashMap.Strict (HashMap, (!))
@@ -84,9 +83,9 @@ runNetworkHttp cfg self prog = do
   pure result
   where
     runNetworkMain :: (MonadIO m) => Manager -> RecvChans -> Network m a -> m a
-    runNetworkMain mgr chans = interpFreer handler
+    runNetworkMain mgr chans = handler
       where
-        handler :: (MonadIO m) => NetworkSig m a -> m a
+        handler :: (MonadIO m) => Network m a -> m a
         handler (Run m) = m
         handler (Send a ls) = liftIO $ do
           res <- mapM (\l -> runClientM (send self $ show a) (mkClientEnv mgr (locToUrl cfg ! l))) ls
@@ -94,6 +93,8 @@ runNetworkHttp cfg self prog = do
             [] -> pure ()
             errors -> putStrLn $ "Errors : " <> show errors
         handler (Recv l) = liftIO $ read <$> readChan (chans ! l)
+        handler (Return a) = pure a
+        handler (Bind m cont) = handler m >>= handler . cont
 
     api :: Proxy API
     api = Proxy

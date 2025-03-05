@@ -8,6 +8,16 @@ import GHC.TypeLits
 
 -- * Computation /per se/
 
+-- | Access to the inner "local" monad.
+--   Since the type of `locally'` restricts the census to a single party, you'll usually want to use
+--   `Choreography.Choreography.locally` instead.
+locally' ::
+  (KnownSymbol l) =>
+  -- | The local action(s), which can use an unwraper function.
+  (Unwrap l -> m a) ->
+  Choreo '[l] m a
+locally' m = Locally m
+
 -- | Perform a local computation at a given location.
 locally ::
   (KnownSymbol (l :: LocTy)) =>
@@ -20,6 +30,15 @@ locally ::
 infix 4 `locally`
 
 locally l m = enclave (l @@ nobody) $ locally' m
+
+-- | Perform the exact same computation in replicate at all participating locations.
+--   The computation can not use anything local to an individual party, including their identity.
+congruently' ::
+  (KnownSymbols ls) =>
+  -- | The computation, which can use an unwraper function.
+  (Unwraps ls -> a) ->
+  Choreo ls m a
+congruently' f = Congruently f
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
@@ -65,6 +84,16 @@ instance (KnownSymbol l) => CanSend (Member l ls, Subset ls ps, Located ls a) l 
   ownsMessagePayload (m, _, _) = m
   structMessagePayload (_, _, p) = p
 
+-- | Communicate a value to all present parties.
+broadcast' ::
+  (Show a, Read a, KnownSymbol l) =>
+  -- | Proof the sender is present
+  Member l ps ->
+  -- | Proof the sender knows the value, the value.
+  (Member l ls, Located ls a) ->
+  Choreo ps m a
+broadcast' l a = Broadcast l a
+
 -- | Send a value from one party to the entire census.
 broadcast ::
   forall l a ps ls m s.
@@ -95,6 +124,15 @@ s ~> rs = do
   congruently rs (\un -> un consSet x)
 
 -- * Enclaves
+
+-- | Lift a choreography of involving fewer parties into the larger party space.
+--   Adds a `Located ls` layer to the return type.
+enclave ::
+  (KnownSymbols ls) =>
+  Subset ls ps ->
+  Choreo ls m a ->
+  Choreo ps m (Located ls a)
+enclave proof ch = Enclave proof ch
 
 -- | Lift a choreography involving fewer parties into the larger party space.
 --   This version, where the returned value is Located at the entire enclave, does not add a Located layer.
