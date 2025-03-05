@@ -69,11 +69,13 @@ naryReplicationStrategy primary backups =
           servers `parallel` \server un ->
             handleRequest (viewFacet un server stateRef) (un server request')
         responses <- gather servers (primary @@ nobody) localResponse
-        response <-
-          (primary @@ nobody) `congruently` \un ->
-            case nub (toList $ un refl responses) of
-              [r] -> r
-              rs -> Desynchronization rs
+        response <- congruently1
+                      (primary @@ nobody)
+                      (refl, responses)
+                      ((\case
+                        [r] -> r
+                        rs -> Desynchronization rs
+                       ) . nub . toList)
         broadcast (primary, response)
     }
   where
@@ -161,11 +163,13 @@ naryHumans primary backups =
         backupResponse <- backups `parallel` \server un -> readResponse (un server request')
         localResponse <- primary `locally` \un -> handleRequest (un singleton stateRef) (un pHas request)
         responses <- gather backups (primary @@ nobody) backupResponse
-        response <-
-          (primary @@ nobody) `congruently` \un ->
-            case nub $ un refl localResponse : toList (un refl responses) of
-              [r] -> r
-              rs -> Desynchronization rs
+        response <- congruently2
+                      (primary @@ nobody)
+                      (refl, localResponse)
+                      (refl, responses)
+                      (\lr -> \rs -> case nub $ lr : toList rs of
+                        [r] -> r
+                        rs' -> Desynchronization rs')
         ((primary, response) ~> refl) >>= naked refl
     }
   where

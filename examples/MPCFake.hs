@@ -100,7 +100,7 @@ reveal ::
 reveal shares = do
   let ps = allOf @ps
   allShares <- gather ps ps shares
-  value <- ps `congruently` \un -> xor $ un ps allShares
+  value <- congruently1 ps (ps, allShares) xor
   naked ps value
 
 computeWire ::
@@ -121,10 +121,10 @@ computeWire trustedAnd parties circuit = case circuit of
     rResult <- compute r
     inputShares <- fanIn (trustedAnd @@ nobody) \p -> do
       (inSuper parties p, \un -> return (viewFacet un p lResult, viewFacet un p rResult)) ~~> trustedAnd @@ nobody
-    outputVal <-
-      (trustedAnd @@ nobody) `congruently` \un ->
-        let ovs = un refl inputShares
-         in xor (fst <$> ovs) && xor (snd <$> ovs)
+    outputVal <- congruently1
+                   (trustedAnd @@ nobody)
+                   (refl, inputShares)
+                   \ovs -> xor (fst <$> ovs) && xor (snd <$> ovs)
     secretShare parties trustedAnd (singleton, outputVal)
   XorGate l r -> do
     lResult <- compute l

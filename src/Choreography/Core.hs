@@ -7,7 +7,7 @@ module Choreography.Core
   ( -- * The `Choreo` monad and its operators
     Choreo(
     Locally,
-    Congruently,
+    Naked,
     Broadcast,
     Enclave,
     Bind,
@@ -64,10 +64,11 @@ data Choreo (ps :: [LocTy]) m a where
     (KnownSymbol l) =>
     (Unwrap l -> m a) ->
     Choreo '[l] m a
-  Congruently ::
-    (KnownSymbols ls) =>
-    (Unwraps ls -> a) ->
-    Choreo ls m a
+  Naked ::
+    --(KnownSymbols ls) =>
+    Subset ps owners ->
+    Located owners a ->
+    Choreo ps m a
   Broadcast ::
     (Show a, Read a, KnownSymbol l) =>
     Member l ps -> -- from
@@ -107,15 +108,12 @@ instance (MonadFail (Choreo ps m),
 -- | Run a `Choreo` monad with centralized semantics.
 --   This basically pretends that the choreography is a single-threaded program and runs it all at once,
 --   ignoring all the location aspects.
-runChoreo :: forall p ps b m. (Monad m) => Choreo (p ': ps) m b -> m b
+runChoreo :: forall census b m p ps. (Monad m, census ~ p ': ps) => Choreo census m b -> m b
 runChoreo = handler
   where
-    handler :: (Monad m) => Choreo (p ': ps) m a -> m a
+    handler :: (Monad m) => Choreo census m a -> m a
     handler (Locally m) = m unwrap
-    handler (Congruently f) =
-      let unwraps :: forall c ls. Subset (p ': ps) ls -> Located ls c -> c
-          unwraps = unwrap . (\(Subset mx) -> mx First) -- wish i could write this better.
-       in pure . f $ unwraps
+    handler (Naked owns a) = pure $ unwrap (inSuper owns First) a
     handler (Broadcast _ (p, a)) = pure $ unwrap p a
     handler (Enclave (_ :: Subset ls (p ': ps)) c) = case tySpine @ls of
       TyNil -> pure Empty
@@ -139,12 +137,12 @@ epp c l' = handler c
   where
     handler :: Choreo ps m a -> Network m a
     handler (Locally m) = Run $ m unwrap
-    handler (Congruently f) =
+    handler (Naked owns a) =
       let unwraps :: forall c ls. Subset ps ls -> Located ls c -> c
           unwraps = case tySpine @ps of
             TyNil -> error "Undefined projection: the census is empty."
             TyCons -> unwrap . (\(Subset mx) -> mx First) -- wish i could write this better.
-       in pure . f $ unwraps
+       in pure $ unwraps owns a
     handler (Broadcast s (l, a)) = do
       let sender = toLocTm s
       let otherRecipients = sender `delete` toLocs (refl :: Subset ps ps)

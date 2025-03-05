@@ -119,7 +119,7 @@ lottery clients servers analyst = do
           (liftIO $ throwIO CommitmentCheckFailed)
     )
   -- 5) If all the checks are successful, then sum random values to get the random index.
-  ω <- servers `congruently` (\un -> sum (un refl ρ') `mod` length (toLocs clients))
+  ω <- congruently1 servers (refl, ρ') (\rho' -> sum rho' `mod` length (toLocs clients))
   chosenShares <- servers `parallel` (\server un -> pure $ toList (viewFacet un server serverShares) !! un server ω)
   -- Servers forward shares to an analyist.
   allShares <- gather servers (analyst @@ nobody) chosenShares

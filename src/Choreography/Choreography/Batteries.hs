@@ -38,24 +38,6 @@ infix 4 `_locally_`
 
 _locally_ l m = void $ locally l (const m)
 
--- | Perform a pure computation at a single location.
-purely ::
-  forall l a ps m.
-  (KnownSymbol l) =>
-  Member l ps ->
-  (Unwrap l -> a) ->
-  Choreo ps m (Located '[l] a)
-
-infix 4 `purely`
-
-purely l a =
-  congruently
-    (Subset \First -> l)
-    ( \un ->
-        let un' :: Unwrap l -- There is definitley a nicer way to write this...
-            un' mem = un (Subset \First -> mem)
-         in a un'
-    )
 
 -- * Communication
 
@@ -89,22 +71,6 @@ infix 4 -~>
 
 (-~>) (l, m) ls' = do
   x <- l `_locally` m
-  (l, x) ~> ls'
-
--- | A variant of `~>` that doesn't use the local monad.
-(*~>) ::
-  forall a l ls' m ps.
-  (Show a, Read a, KnownSymbol l, KnownSymbols ls') =>
-  -- | A pair of a sender's location and a local computation.
-  (Member l ps, Unwrap l -> a) ->
-  -- | A receiver's location.
-  Subset ls' ps ->
-  Choreo ps m (Located ls' a)
-
-infix 4 *~>
-
-(*~>) (l, m) ls' = do
-  x <- l @@ nobody `congruently` \uns -> m $ uns . (@@ nobody)
   (l, x) ~> ls'
 
 -- * Enclaves

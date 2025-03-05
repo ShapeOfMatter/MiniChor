@@ -31,27 +31,41 @@ infix 4 `locally`
 
 locally l m = enclave (l @@ nobody) $ locally' m
 
--- | Perform the exact same computation in replicate at all participating locations.
+-- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
-congruently' ::
+congruently1 ::
+  forall ls a census owners1 arg1 m.
   (KnownSymbols ls) =>
-  -- | The computation, which can use an unwraper function.
-  (Unwraps ls -> a) ->
-  Choreo ls m a
-congruently' f = Congruently f
+  Subset ls census ->
+  (Subset ls owners1, Located owners1 arg1) ->
+  (arg1 -> a) ->
+  Choreo census m (Located ls a)
+congruently1 present (owns1, arg1) f = enclave present $ f <$> naked owns1 arg1
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
-congruently ::
-  forall ls a ps m.
+congruently2 ::
+  forall ls a census owners1 arg1 owners2 arg2 m.
   (KnownSymbols ls) =>
-  Subset ls ps ->
-  (Unwraps ls -> a) ->
-  Choreo ps m (Located ls a)
+  Subset ls census ->
+  (Subset ls owners1, Located owners1 arg1) ->
+  (Subset ls owners2, Located owners2 arg2) ->
+  (arg1 -> arg2 -> a) ->
+  Choreo census m (Located ls a)
+congruently2 present (owns1, arg1) (owns2, arg2) f = enclave present $ f <$> naked owns1 arg1 <*> naked owns2 arg2
 
-infix 4 `congruently`
-
-congruently ls a = enclave ls $ congruently' a
+-- | Perform the exact same pure computation in replicate at multiple locations.
+--   The computation can not use anything local to an individual party, including their identity.
+congruently3 ::
+  forall ls a census owners1 arg1 owners2 arg2 owners3 arg3 m.
+  (KnownSymbols ls) =>
+  Subset ls census ->
+  (Subset ls owners1, Located owners1 arg1) ->
+  (Subset ls owners2, Located owners2 arg2) ->
+  (Subset ls owners3, Located owners3 arg3) ->
+  (arg1 -> arg2 -> arg3 -> a) ->
+  Choreo census m (Located ls a)
+congruently3 present (owns1, arg1) (owns2, arg2) (owns3, arg3) f = enclave present $ f <$> naked owns1 arg1 <*> naked owns2 arg2 <*> naked owns3 arg3
 
 -- | Unwrap a value known to the entire census.
 naked ::
@@ -59,7 +73,7 @@ naked ::
   Subset ps qs ->
   Located qs a ->
   Choreo ps m a
-naked ownership a = congruently' (\un -> un ownership a)
+naked = Naked
 
 -- | Un-nest located values.
 flatten :: (KnownSymbols ls)
@@ -139,8 +153,8 @@ broadcast s = broadcast' (presentToSend s) (ownsMessagePayload s, structMessageP
 infix 4 ~>
 
 s ~> rs = do
-  x :: a <- enclave (presentToSend s @@ rs) $ broadcast' First (ownsMessagePayload s, structMessagePayload s)
-  congruently rs (\un -> un consSet x)
+  x <- enclave (presentToSend s @@ rs) $ broadcast' First (ownsMessagePayload s, structMessagePayload s)
+  othersForget rs consSet x
 
 -- * Enclaves
 

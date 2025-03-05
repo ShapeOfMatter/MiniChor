@@ -79,10 +79,11 @@ setup :: Choreo Servers (CLI m) (Located Servers (Request -> Response))
 setup = do
   handlerName <-
     (primary, getstr "How should we mock `Get` Requests? (reverse or alphabetize)")
-      -~> primary
-      @@ backup
-      @@ nobody
-  primary @@ backup @@ nobody `congruently` \un -> handleRequest (fromMaybe defaultHandler $ un refl handlerName `lookup` handlers)
+      -~> primary @@ backup @@ nobody
+  congruently1
+    (primary @@ backup @@ nobody)
+    (refl, handlerName)
+    \hName -> handleRequest (fromMaybe defaultHandler $ hName `lookup` handlers)
 
 -- | `kvs` is a choreography that processes a single request located at the client and returns the response.
 -- If the request is a `PUT`, it will forward the request to the backup node.
@@ -90,7 +91,11 @@ kvs :: Choreo Participants (CLI m) ()
 kvs = do
   handler <- enclaveToAll servers setup
   request <- (client, getInput "Enter the `read`able Request:") -~> primary @@ backup @@ nobody
-  response <- primary @@ backup @@ nobody `congruently` \un -> un refl handler $ un refl request
+  response <- congruently2
+                (primary @@ backup @@ nobody)
+                (refl, handler)
+                (refl, request)
+                ($)
   response' <- (primary, response) ~> client @@ nobody
   client `locally_` \un -> putOutput "Recieved:" $ un client response'
 

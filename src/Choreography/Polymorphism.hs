@@ -2,7 +2,6 @@
 module Choreography.Polymorphism where
 
 import Choreography.Choreography
-import Choreography.Choreography.Batteries ((*~>))
 import Choreography.Core
 import Choreography.Locations
 import Control.Monad (void)
@@ -178,8 +177,9 @@ fanIn ::
   (forall q. (KnownSymbol q) => Member q qs -> Choreo ps m (Located rs a)) ->
   Choreo ps m (Located rs (Quire qs a))
 fanIn rs body = do
-  (PIndexed x) <- sequenceP (PIndexed $ Compose . (Const <$>) <$> body)
-  rs `congruently` \un -> stackLeaves $ \q -> un refl (getConst $ x q)
+  x <- Quire <$> sequenceP (PIndexed $ Compose . (Const <$>) <$> body)
+  enclave rs $ traverse (naked refl) x
+  --congruently1 rs \un -> stackLeaves $ \q -> un refl (getConst $ x q)
 
 -- | The owner of a t`Quire` sends its elements to their respective parties, resulting in a `Faceted`.
 --   This represents the "scatter" idea common in parallel computing contexts.
@@ -190,8 +190,9 @@ scatter ::
   Subset recipients census ->
   Located '[sender] (Quire recipients a) ->
   Choreo census m (Faceted recipients '[sender] a)
-scatter sender recipients values = fanOut \r ->
-  (sender, \un -> un First values `getLeaf` r) *~> inSuper recipients r @@ sender @@ nobody
+scatter sender recipients values = fanOut \r -> do
+  message <- congruently1 (sender @@ nobody) (refl, values) (`getLeaf` r)
+  (sender, message) ~> inSuper recipients r @@ sender @@ nobody
 
 -- | The many owners of a `Faceted` each send their respective values to a constant list of recipients, resulting in a t`Quire`.
 --   This represents the "gather" idea common in parallel computing contexts.

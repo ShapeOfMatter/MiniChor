@@ -147,9 +147,9 @@ gmw circuit = case circuit of
   LitWire b -> do
     -- process a publicly-known literal value
     let chooseShare :: forall p. (KnownSymbol p) => Member p parties -> Choreo parties (CLI m) (Located '[p] Bool)
-        chooseShare p = congruently (p @@ nobody) $ \_ -> case p of
-          First -> b
-          Later _ -> False
+        chooseShare p = enclave (p @@ nobody) $ case p of
+          First -> pure b
+          Later _ -> pure False
     fanOut chooseShare
   AndGate l r -> do
     -- process an AND gate
