@@ -5,6 +5,6 @@ This is a fork of it for exploring the ramifications of more minimal foundationa
 
 - [x] Remove the freer monad system
   - Why? I'm not sure this actually offers any "research" advantage...
-- [ ] Derive `flatten` and `othersForget`.
+- [x] Derive `flatten` and `othersForget`.
 - [ ] Replace `congruently` with `naked` (and simplify `locally` and remove `Unwrap(s)`).
 - [ ] Make `Located` a derived thing.
