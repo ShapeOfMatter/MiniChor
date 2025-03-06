@@ -79,7 +79,7 @@ secretShare ::
   (Member p owners, Located owners Bool) ->
   Choreo ps m (Faceted parties '[] Bool)
 secretShare parties p (ownership, value) = do
-  shares <- p `locally` \un -> genShares (un ownership value)
+  shares <- locally1 p (ownership, value) genShares
   PIndexed fs <- scatter p parties shares
   fanOut (\q -> othersForget (inSuper parties q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
   where
@@ -111,16 +111,17 @@ computeWire ::
   Choreo ps (CLI m) (Faceted parties '[] Bool)
 computeWire trustedAnd parties circuit = case circuit of
   InputWire p -> do
-    value <- inSuper parties p `_locally` getInput "Enter a secret input value:"
+    value <- inSuper parties p `locally` getInput "Enter a secret input value:"
     secretShare parties (inSuper parties p) (singleton, value)
   LitWire b -> do
     let shares = partyNames `zip` (b : repeat False)
-    fanOut \p -> inSuper parties p `_locally` return (fromJust $ toLocTm p `lookup` shares)
+    fanOut \p -> inSuper parties p `locally` return (fromJust $ toLocTm p `lookup` shares)
   AndGate l r -> do
     lResult <- compute l
     rResult <- compute r
     inputShares <- fanIn (trustedAnd @@ nobody) \p -> do
-      (inSuper parties p, \un -> return (viewFacet un p lResult, viewFacet un p rResult)) ~~> trustedAnd @@ nobody
+      results <- congruently2 (inSuper parties p @@ nobody) (refl, localize p lResult) (refl, localize p rResult) (,)
+      (inSuper parties p, results) ~> trustedAnd @@ nobody
     outputVal <- congruently1
                    (trustedAnd @@ nobody)
                    (refl, inputShares)

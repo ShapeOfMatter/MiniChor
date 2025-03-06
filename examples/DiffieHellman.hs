@@ -39,6 +39,7 @@ module DiffieHellman where
 import CLI
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO)
 import System.Environment
 import System.Random
@@ -65,36 +66,36 @@ diffieHellman ::
   Choreo Participants (CLI m) ()
 diffieHellman = do
   -- wait for alice to initiate the process
-  _ <- alice `_locally` getstr "enter to start key exchange..."
-  bob `_locally_` putNote "waiting for alice to initiate key exchange"
+  _ <- alice `locally` getstr "enter to start key exchange..."
+  bob `locally_` putNote "waiting for alice to initiate key exchange"
 
   -- alice picks p and g and sends them to bob
   pa <-
-    alice `_locally` do
+    alice `locally` do
       x <- randomRIO (200, 1000 :: Int)
       return $ primeNums !! x
   pb <- (alice, pa) ~> bob @@ nobody
-  ga <- alice `locally` \un -> do randomRIO (10, un alice pa)
+  ga <- locally1 alice (alice, pa) \pa' -> randomRIO (10, pa')
   gb <- (alice, ga) ~> bob @@ nobody
 
   -- alice and bob select secrets
-  a <- alice `_locally` randomRIO (200, 1000 :: Integer)
-  b <- bob `_locally` randomRIO (200, 1000 :: Integer)
+  a <- alice `locally` randomRIO (200, 1000 :: Integer)
+  b <- bob `locally` randomRIO (200, 1000 :: Integer)
 
   -- alice and bob computes numbers that they exchange
-  a' <- alice `locally` \un -> do return $ un alice ga ^ un alice a `mod` un alice pa
-  b' <- bob `locally` \un -> do return $ un bob gb ^ un bob b `mod` un bob pb
+  a' <- congruently3 (alice @@ nobody) (refl, ga) (refl, a) (refl, pa) \ga' a' pa' -> ga' ^ a' `mod` pa'
+  b' <- congruently3 (bob @@ nobody) (refl, gb) (refl, b) (refl, pb) \gb' b' pb' -> gb' ^ b' `mod` pb'
 
   -- exchange numbers
   a'' <- (alice, a') ~> bob @@ nobody
   b'' <- (bob, b') ~> alice @@ nobody
 
   -- compute shared key
-  alice `locally_` \un ->
-    let s = un alice b'' ^ un alice a `mod` un alice pa
+  void $ locally3 alice (alice, b'') (alice, a) (alice, pa) \b''a aa paa ->
+    let s = b''a ^ aa `mod` paa
      in putOutput "alice's shared key:" s
-  bob `locally_` \un ->
-    let s = un bob a'' ^ un bob b `mod` un bob pb
+  void $ locally3 bob (bob, a'') (bob, b) (bob, pb) \a''b bb pbb ->
+    let s = a''b ^ bb `mod` pbb
      in putOutput "bob's shared key:" s
 
 main :: IO ()

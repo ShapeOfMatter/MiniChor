@@ -60,7 +60,7 @@ game = do
       everyone = refl @("dealer" ': players)
   hand1 <-
     ( fanIn everyone \(player :: Member player players) -> do
-        card1 <- locally dealer (\_ -> getInput ("Enter random card for " ++ toLocTm player))
+        card1 <- locally dealer (getInput ("Enter random card for " ++ toLocTm player))
         (dealer, card1) ~> everyone
       )
       >>= naked everyone
@@ -73,11 +73,11 @@ game = do
       choice <- broadcast (listedFirst @player, localize player wantsNextCard)
       if choice
         then do
-          cd2 <- locally dealer' (\_ -> getInput (toLocTm player ++ "'s second card:"))
+          cd2 <- locally dealer' (getInput (toLocTm player ++ "'s second card:"))
           card2 <- broadcast (dealer', cd2)
           return [getLeaf hand1 player, card2]
         else return [getLeaf hand1 player]
-  tblCrd <- locally dealer (\_ -> getInput "Enter a single card for everyone:")
+  tblCrd <- locally dealer (getInput "Enter a single card for everyone:")
   tableCard <- (dealer, tblCrd) ~> players
   void $ parallel players \player un -> do
     let hand = un player tableCard : viewFacet un player hand2

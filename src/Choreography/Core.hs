@@ -62,7 +62,7 @@ unwrap _ Empty = error "Located: This should never happen for a well-typed chore
 data Choreo (ps :: [LocTy]) m a where
   Locally ::
     (KnownSymbol l) =>
-    (Unwrap l -> m a) ->
+    m a ->
     Choreo '[l] m a
   Naked ::
     --(KnownSymbols ls) =>
@@ -100,7 +100,7 @@ instance (MonadFail (Choreo ps m),
           KnownSymbols ps,
           MonadFail m) =>
           MonadFail (Choreo (p ': ps) m) where
-  fail message = do void . Enclave (First @@ nobody) . Locally $ \_ -> fail message
+  fail message = do void . Enclave (First @@ nobody) . Locally $ fail message
                     void . Enclave (consSuper refl) $ fail message
                     pure undefined
 
@@ -112,7 +112,7 @@ runChoreo :: forall census b m p ps. (Monad m, census ~ p ': ps) => Choreo censu
 runChoreo = handler
   where
     handler :: (Monad m) => Choreo census m a -> m a
-    handler (Locally m) = m unwrap
+    handler (Locally m) = m
     handler (Naked owns a) = pure $ unwrap (inSuper owns First) a
     handler (Broadcast _ (p, a)) = pure $ unwrap p a
     handler (Enclave (_ :: Subset ls (p ': ps)) c) = case tySpine @ls of
@@ -136,7 +136,7 @@ epp ::
 epp c l' = handler c
   where
     handler :: Choreo ps m a -> Network m a
-    handler (Locally m) = Run $ m unwrap
+    handler (Locally m) = Run $ m
     handler (Naked owns a) =
       let unwraps :: forall c ls. Subset ps ls -> Located ls c -> c
           unwraps = case tySpine @ps of

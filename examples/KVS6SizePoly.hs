@@ -50,7 +50,7 @@ kvs ReplicationStrategy {setup, primary, handle} client = do
         case response of
           Stopped -> return ()
           _ -> do
-            client `_locally_` putOutput "Recieved:" response
+            client `locally_` putOutput "Recieved:" response
             go
   go
 
@@ -142,11 +142,10 @@ nullReplicationStrategy ::
 nullReplicationStrategy primary =
   ReplicationStrategy
     { primary,
-      setup = primary `_locally` newIORef (Map.empty :: State),
-      handle = \stateRef pHas request ->
-        ( (primary, \un -> handleRequest (un singleton stateRef) (un pHas request)) ~~> refl
-        )
-          >>= naked refl
+      setup = primary `locally` newIORef (Map.empty :: State),
+      handle = \stateRef pHas request -> do
+        result <- locally2 primary (singleton, stateRef) (pHas, request) handleRequest
+        broadcast (primary, result)
     }
 
 naryHumans ::
@@ -157,17 +156,17 @@ naryHumans ::
 naryHumans primary backups =
   ReplicationStrategy
     { primary,
-      setup = primary `_locally` newIORef (Map.empty :: State),
+      setup = primary `locally` newIORef (Map.empty :: State),
       handle = \stateRef pHas request -> do
         request' <- (primary, (pHas, request)) ~> backups
         backupResponse <- backups `parallel` \server un -> readResponse (un server request')
-        localResponse <- primary `locally` \un -> handleRequest (un singleton stateRef) (un pHas request)
+        localResponse <- locally2 primary (singleton, stateRef) (pHas, request) handleRequest
         responses <- gather backups (primary @@ nobody) backupResponse
         response <- congruently2
                       (primary @@ nobody)
                       (refl, localResponse)
                       (refl, responses)
-                      (\lr -> \rs -> case nub $ lr : toList rs of
+                      (\lr rs -> case nub $ lr : toList rs of
                         [r] -> r
                         rs' -> Desynchronization rs')
         ((primary, response) ~> refl) >>= naked refl

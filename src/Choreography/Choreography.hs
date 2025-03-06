@@ -13,8 +13,8 @@ import GHC.TypeLits
 --   `Choreography.Choreography.locally` instead.
 locally' ::
   (KnownSymbol l) =>
-  -- | The local action(s), which can use an unwraper function.
-  (Unwrap l -> m a) ->
+  -- | The local action(s)
+  m a ->
   Choreo '[l] m a
 locally' m = Locally m
 
@@ -23,8 +23,8 @@ locally ::
   (KnownSymbol (l :: LocTy)) =>
   -- | Location performing the local computation.
   Member l ps ->
-  -- | The local computation, which can use a constrained unwrap function.
-  (Unwrap l -> m a) ->
+  -- | The local computation
+  m a ->
   Choreo ps m (Located '[l] a)
 
 infix 4 `locally`

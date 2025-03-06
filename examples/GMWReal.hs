@@ -92,7 +92,7 @@ secretShare ::
   Located '[p] Bool ->
   Choreo parties m (Faceted parties '[] Bool)
 secretShare p value = do
-  shares <- locally p \un -> genShares p (un singleton value)
+  shares <- locally1 p (singleton, value) (genShares p)
   PIndexed fs <- scatter p (allOf @parties) shares
   fanOut (\q -> othersForget (q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
 
@@ -115,16 +115,17 @@ fAnd uShares vShares = do
     let p_j_name = toLocTm p_j
     b_i_s <- fanIn (p_j @@ nobody) \p_i ->
       if toLocTm p_i == p_j_name
-        then _locally p_j $ pure False
+        then locally p_j $ pure False
         else do
           -- bb is the truth table
-          bb <- locally p_i \un ->
-            let a_ij = getLeaf (viewFacet un p_i a_j_s) p_j
-                u_i = viewFacet un p_i uShares
-             in pure (xor [u_i, a_ij], a_ij)
+          bb <- congruently2
+                  (p_i @@ nobody)
+                  (refl, localize p_i a_j_s)
+                  (refl, localize p_i uShares)
+                  \asdf u_i -> (xor [u_i, getLeaf asdf p_j], getLeaf asdf p_j) -- sorry for the variable name
           -- localize p_j vSHares is party j's share of v
           enclaveTo (p_i @@ p_j @@ nobody) (listedSecond @@ nobody) (ot2 bb $ localize p_j vShares)
-    locally p_j \un -> pure $ xor $ un singleton b_i_s
+    congruently1 (p_j @@ nobody) (refl, b_i_s) xor
   parallel (allOf @parties) \p_i un ->
     let computeShare u v a_js b = xor $ [u && v, b] ++ toList (qModify p_i (const False) a_js)
      in pure $
@@ -142,7 +143,7 @@ gmw ::
 gmw circuit = case circuit of
   InputWire p -> do
     -- process a secret input value from party p
-    value :: Located '[p] Bool <- _locally p $ getInput "Enter a secret input value:"
+    value :: Located '[p] Bool <- locally p $ getInput "Enter a secret input value:"
     secretShare p value
   LitWire b -> do
     -- process a publicly-known literal value

@@ -30,6 +30,7 @@ module MergeSort where
 
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
 
@@ -56,13 +57,13 @@ sort ::
   Located '[a] [Int] ->
   Choreo ps IO (Located '[a] [Int])
 sort a b c lst = do
-  condition <- a `locally` \un -> do return $ length (un singleton lst) > 1
+  condition <- congruently1 (a @@ nobody) (refl, lst) ((> 1) . length)
   broadcast (a, condition) >>= \case
     True -> do
-      _ <- a `locally` \un -> do return $ length (un singleton lst) `div` 2
-      divided <- a `locally` \un -> do return $ divide (un singleton lst)
-      l <- a `locally` \un -> do return $ fst (un singleton divided)
-      r <- a `locally` \un -> do return $ snd (un singleton divided)
+      -- _ <- a `locally` \un -> do return $ length (un singleton lst) `div` 2  -- IDK what this was for...
+      divided <- congruently1 (a @@ nobody) (refl, lst) divide
+      l <- congruently1 (a @@ nobody) (refl, divided) fst
+      r <- congruently1 (a @@ nobody) (refl, divided) snd
       l' <- (a, l) ~> b @@ nobody
       r' <- (a, r) ~> c @@ nobody
       ls' <- sort b c a l'
@@ -84,30 +85,30 @@ merge ::
   Located '[c] [Int] ->
   Choreo ps IO (Located '[a] [Int])
 merge a b c lhs rhs = do
-  lhsHasElements <- b `locally` \un -> do return $ not (null (un singleton lhs))
+  lhsHasElements <- congruently1 (b @@ nobody) (refl, lhs) (not . null)
   broadcast (b, lhsHasElements) >>= \case
     True -> do
-      rhsHasElements <- c `locally` \un -> do return $ not (null (un singleton rhs))
+      rhsHasElements <- congruently1 (c @@ nobody) (refl, rhs) (not . null)
       broadcast (c, rhsHasElements) >>= \case
         True -> do
-          rhsHeadAtC <- c `locally` \un -> do return $ head (un singleton rhs)
+          rhsHeadAtC <- congruently1 (c @@ nobody) (refl, rhs) head
           rhsHeadAtB <- (c, rhsHeadAtC) ~> b @@ nobody
-          takeLhs <- b `locally` \un -> do return $ head (un singleton lhs) <= un singleton rhsHeadAtB
+          takeLhs <- congruently2 (b @@ nobody) (refl, lhs) (refl, rhsHeadAtB) \lhs' rhsH -> head lhs' <= rhsH
           broadcast (b, takeLhs) >>= \case
             True -> do
               -- take (head lhs) and merge the rest
-              lhs' <- b `locally` \un -> do return $ tail (un singleton lhs)
+              lhs' <- congruently1 (b @@ nobody) (refl, lhs) tail
               merged <- merge a b c lhs' rhs
-              lhsHeadAtB <- b `locally` \un -> do return $ head (un singleton lhs)
+              lhsHeadAtB <- congruently1 (b @@ nobody) (refl, lhs) head
               lhsHeadAtA <- (b, lhsHeadAtB) ~> a @@ nobody
-              a `locally` \un -> do return $ un singleton lhsHeadAtA : un singleton merged
+              congruently2 (a @@ nobody) (refl, lhsHeadAtA) (refl, merged) (:)
             False -> do
               -- take (head rhs) and merge the rest
-              rhs' <- c `locally` \un -> do return $ tail (un singleton rhs)
+              rhs' <- congruently1 (c @@ nobody) (refl, rhs) tail
               merged <- merge a b c lhs rhs'
-              rhsHeadAtC' <- c `locally` \un -> do return $ head (un singleton rhs)
+              rhsHeadAtC' <- congruently1 (c @@ nobody) (refl, rhs) head
               rhsHeadAtA <- (c, rhsHeadAtC') ~> a @@ nobody
-              a `locally` \un -> do return $ un singleton rhsHeadAtA : un singleton merged
+              congruently2 (a @@ nobody) (refl, rhsHeadAtA) (refl, merged) (:)
         False -> do
           (b, lhs) ~> a @@ nobody
     False -> do
@@ -115,12 +116,9 @@ merge a b c lhs rhs = do
 
 mainChoreo :: Choreo Participants IO ()
 mainChoreo = do
-  lst <- primary `_locally` return [1, 6, 5, 3, 4, 2, 7, 8]
+  lst <- primary `locally` return [1, 6, 5, 3, 4, 2, 7, 8]
   sorted <- sort primary worker1 worker2 lst
-  _ <-
-    primary `locally` \un -> do
-      print (un primary sorted)
-      return ()
+  void $ locally1 primary (primary, sorted) print
   return ()
 
 main :: IO ()

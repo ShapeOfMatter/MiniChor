@@ -13,6 +13,7 @@ module KVS5Fig17 where
 import CLI
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data (TestArgs, reference)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
@@ -97,7 +98,7 @@ kvs = do
                 (refl, request)
                 ($)
   response' <- (primary, response) ~> client @@ nobody
-  client `locally_` \un -> putOutput "Recieved:" $ un client response'
+  void $ locally1 client (client, response') (putOutput "Recieved:")
 
 main :: IO ()
 main = do

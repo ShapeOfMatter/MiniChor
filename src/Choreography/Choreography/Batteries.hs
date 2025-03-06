@@ -13,31 +13,51 @@ import GHC.TypeLits
 locally_ ::
   (KnownSymbol l) =>
   Member l ps ->
-  (Unwrap l -> m ()) ->
+  m () ->
   Choreo ps m ()
 
 infix 4 `locally_`
 
 locally_ l m = void $ locally l m
 
--- | Perform a local computation that doesn't need to unwrap any existing `Located` values.
-_locally ::
+locally1 ::
   (KnownSymbol l) =>
-  Member l ps ->
-  m a ->
-  Choreo ps m (Located '[l] a)
+  Member l census ->
+  (Member l owners1, Located owners1 arg1) ->
+  (arg1 -> m b) ->
+  Choreo census m (Located '[l] b)
+locally1 present (owns1, a1) f =
+    enclave (present @@ nobody) $ f
+        <$> naked (owns1 @@ nobody) a1
+        >>= locally'
 
-infix 4 `_locally`
+locally2 ::
+  (KnownSymbol l) =>
+  Member l census ->
+  (Member l owners1, Located owners1 arg1) ->
+  (Member l owners2, Located owners2 arg2) ->
+  (arg1 -> arg2 -> m b) ->
+  Choreo census m (Located '[l] b)
+locally2 present (owns1, a1) (owns2, a2) f =
+    enclave (present @@ nobody) $ f
+        <$> naked (owns1 @@ nobody) a1
+        <*> naked (owns2 @@ nobody) a2
+        >>= locally'
 
-_locally l m = locally l $ const m
-
--- | Perform a local computation that doesn't need to unwrap any existing `Located` values and yields nothing.
-_locally_ :: (KnownSymbol l) => Member l ps -> m () -> Choreo ps m ()
-
-infix 4 `_locally_`
-
-_locally_ l m = void $ locally l (const m)
-
+locally3 ::
+  (KnownSymbol l) =>
+  Member l census ->
+  (Member l owners1, Located owners1 arg1) ->
+  (Member l owners2, Located owners2 arg2) ->
+  (Member l owners3, Located owners3 arg3) ->
+  (arg1 -> arg2 -> arg3 -> m b) ->
+  Choreo census m (Located '[l] b)
+locally3 present (owns1, a1) (owns2, a2) (owns3, a3) f =
+    enclave (present @@ nobody) $ f
+        <$> naked (owns1 @@ nobody) a1
+        <*> naked (owns2 @@ nobody) a2
+        <*> naked (owns3 @@ nobody) a3
+        >>= locally'
 
 -- * Communication
 
@@ -46,7 +66,7 @@ _locally_ l m = void $ locally l (const m)
   forall a l ls' m ps.
   (Show a, Read a, KnownSymbol l, KnownSymbols ls') =>
   -- | A pair of a sender's location and a local computation.
-  (Member l ps, Unwrap l -> m a) ->
+  (Member l ps, m a) ->
   -- | A receiver's location.
   Subset ls' ps ->
   Choreo ps m (Located ls' a)
@@ -70,7 +90,7 @@ infix 4 ~~>
 infix 4 -~>
 
 (-~>) (l, m) ls' = do
-  x <- l `_locally` m
+  x <- l `locally` m
   (l, x) ~> ls'
 
 -- * Enclaves

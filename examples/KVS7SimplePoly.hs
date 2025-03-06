@@ -7,6 +7,7 @@ module KVS7SimplePoly where
 -- # This example was carried over from earlier work, likely HasChor. It doesn't yet have a unit test attached to it.
 
 import Choreography
+import Control.Monad (void)
 import Data.IORef (IORef, newIORef, readIORef)
 
 type Response = Int
@@ -48,11 +49,11 @@ handleRequest request (primaryStateRef, backupsStateRefs) =
       oks <- parallel backups \backup un ->
         handlePut (viewFacet un backup backupsStateRefs) key value
       gathered <- gather backups (primary @@ nobody) oks
-      locally primary \un ->
-        if all isOk (un primary gathered)
-          then handlePut (un primary primaryStateRef) key value
+      locally2 primary (primary, gathered) (primary, primaryStateRef) \gathered' stRef ->
+        if all isOk gathered'
+          then handlePut stRef key value
           else return errorResponse
-    Get key -> locally primary \un -> handleGet (un primary primaryStateRef) key
+    Get key -> locally1 primary (primary, primaryStateRef) \stRef -> handleGet stRef key
   where
     primary :: forall ps. Member "primary" ("primary" ': ps)
     primary = listedFirst
@@ -78,7 +79,7 @@ kvs request stateRefs = do
 
 mainChoreo :: (KnownSymbols backups) => Choreo ("client" ': "primary" ': backups) IO ()
 mainChoreo = do
-  stateRef <- primary `_locally` newIORef "I'm Primary"
+  stateRef <- primary `locally` newIORef "I'm Primary"
   bStRefs <- parallel backups \p _ -> newIORef ("I'm " ++ toLocTm p)
   loop (stateRef, bStRefs)
   where
@@ -88,9 +89,9 @@ mainChoreo = do
     client = listedFirst
     backups = consSuper $ consSuper refl
     loop state = do
-      request <- _locally client $ read @Request <$> getLine
+      request <- locally client $ read @Request <$> getLine
       response <- kvs request state
-      client `locally_` \un -> do putStrLn ("> " ++ show (un client response))
+      void $ locally1 client (client, response) (putStrLn . ("> " ++) . show)
       loop state
 
 main :: IO ()

@@ -26,11 +26,12 @@ bookseller ::
   (Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)) ->
   Choreo ("buyer" ': "seller" ': supporters) (CLI m) ()
 bookseller mkDecision = do
-  database <- seller `_locally` getInput "Enter the book database (for `Read`):"
+  database <- seller `locally` getInput "Enter the book database (for `Read`):"
   title <- (buyer, getstr "Enter the title of the book to buy:") -~> seller @@ nobody
 
   -- the seller checks the price of the book and sends it to the buyer
-  price <- (seller, \un -> return $ priceOf (un seller database) (un seller title)) ~~> buyer @@ nobody
+  price' <- congruently2 (seller @@ nobody) (refl, database) (refl, title) priceOf
+  price <- (seller, price') ~> buyer @@ nobody
 
   -- the buyer and supporters (transactors) make a decision using the `mkDecision` choreography
   decision <- enclave transactors (mkDecision price)
@@ -44,7 +45,7 @@ bookseller mkDecision = do
           deliveryDate <- (seller, \un -> return $ deliveryDateOf (un seller database) (un seller title)) ~~> buyer @@ nobody
           buyer `locally_` \un -> putstr "The book will be delivered on:" $ show (un buyer deliveryDate)
         False -> do
-          buyer `_locally_` putNote "The book's price is out of the budget"
+          buyer `locally_` putNote "The book's price is out of the budget"
 
   return ()
   where
@@ -57,14 +58,14 @@ bookseller mkDecision = do
 -- | `mkDecision1` checks if buyer's budget is greater than the price of the book
 mkDecision1 :: Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)
 mkDecision1 price = do
-  budget <- buyer `_locally` getInput "What are you willing to pay?"
+  budget <- buyer `locally` getInput "What are you willing to pay?"
   buyer `locally` \un -> return $ un buyer price <= un buyer budget
 
 -- | `mkDecision2` asks supporters how much they're willing to contribute and checks
 -- if the buyer's budget is greater than the price of the book minus all supporters' contribution
 mkDecision2 :: forall supporters {m}. (KnownSymbols supporters) => Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)
 mkDecision2 price = do
-  budget <- buyer `_locally` getInput "What are you willing to pay?"
+  budget <- buyer `locally` getInput "What are you willing to pay?"
 
   contribs <- fanIn @supporters explicitSubset $ \supporter ->
     (Later supporter, getInput "How much you're willing to contribute?") -~> buyer @@ nobody

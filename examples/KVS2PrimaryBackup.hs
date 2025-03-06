@@ -31,6 +31,7 @@ module KVS2PrimaryBackup where
 
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -90,18 +91,14 @@ kvs request (primaryStateRef, backupStateRef) = do
     -- if the request is a `PUT`, forward the request to the backup node
     Put _ _ -> do
       request'' <- (primary, request') ~> backup @@ nobody
-      ack <-
-        backup `locally` \un -> do
-          handleRequest (un backup request'') (un backup backupStateRef)
+      ack <- locally2 backup (backup, request'') (backup, backupStateRef) handleRequest
       _ <- (backup, ack) ~> primary @@ nobody
       return ()
     _ -> do
       return ()
 
   -- process request on the primary node
-  response <-
-    primary `locally` \un ->
-      handleRequest (un primary request') (un primary primaryStateRef)
+  response <- locally2 primary (primary, request') (primary, primaryStateRef) handleRequest
 
   -- send response to client
   (primary, response) ~> client @@ nobody
@@ -110,15 +107,15 @@ kvs request (primaryStateRef, backupStateRef) = do
 -- It initializes the state and loops forever.
 mainChoreo :: Choreo Participants IO ()
 mainChoreo = do
-  primaryStateRef <- primary `_locally` newIORef (Map.empty :: State)
-  backupStateRef <- backup `_locally` newIORef (Map.empty :: State)
+  primaryStateRef <- primary `locally` newIORef (Map.empty :: State)
+  backupStateRef <- backup `locally` newIORef (Map.empty :: State)
   loop (primaryStateRef, backupStateRef)
   where
     loop :: (Located '["primary"] (IORef State), Located '["backup"] (IORef State)) -> Choreo Participants IO ()
     loop stateRefs = do
-      request <- client `_locally` readRequest
+      request <- client `locally` readRequest
       response <- kvs request stateRefs
-      client `locally_` \un -> do putStrLn ("> " ++ show (un client response))
+      void $ locally1 client (client, response) (putStrLn . ("> " ++) . show)
       loop stateRefs
 
 main :: IO ()

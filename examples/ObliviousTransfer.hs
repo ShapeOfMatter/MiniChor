@@ -12,6 +12,7 @@ import Choreography.Network.Http
 import Control.Monad.IO.Class (MonadIO (liftIO))
 -- For cryptonite
 
+import Control.Monad (void)
 import Crypto.Hash.Algorithms qualified as HASH
 import Crypto.PubKey.RSA qualified as RSA
 import Crypto.PubKey.RSA.OAEP qualified as OAEP
@@ -71,7 +72,8 @@ ot2Insecure b1 b2 s = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
   sr <- (receiver, s) ~> sender @@ nobody
-  (sender, \un -> return $ un singleton $ if un singleton sr then b1 else b2) ~~> receiver @@ nobody
+  message <- congruently3 (sender @@ nobody) (refl, sr) (refl, b1) (refl, b2) \sr' b1' b2' -> if sr' then b1' else b2'
+  (sender, message) ~> receiver @@ nobody
 
 genKeys :: (CRT.MonadRandom m) => Bool -> m (RSA.PublicKey, RSA.PublicKey, RSA.PrivateKey)
 genKeys s = do
@@ -97,7 +99,7 @@ decryptS ::
 decryptS (_, _, sk) s (c1, c2) = if s then decryptRSA sk c1 else decryptRSA sk c2
 
 -- One out of two OT
-ot2 ::
+ot2 :: forall sender receiver m.
   (KnownSymbol sender, KnownSymbol receiver, MonadIO m, CRT.MonadRandom m) =>
   Located '[sender] (Bool, Bool) ->
   Located '[receiver] Bool ->
@@ -106,29 +108,13 @@ ot2 bb s = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
 
-  keys <- locally receiver \un -> liftIO $ genKeys $ un singleton s
-  pks <-
-    ( receiver,
-      \un ->
-        let (pk1, pk2, _) = un singleton keys
-         in return (pk1, pk2)
-      )
-      ~~> sender
-      @@ nobody
-  encrypted <-
-    ( sender,
-      \un ->
-        let (b1, b2) = un singleton bb
-         in liftIO $ encryptS (un singleton pks) b1 b2
-      )
-      ~~> receiver
-      @@ nobody
-  locally receiver \un ->
-    liftIO $
-      decryptS
-        (un singleton keys)
-        (un singleton s)
-        (un singleton encrypted)
+  keys <- locally1 receiver (singleton, s) \s' -> liftIO $ genKeys s'
+  pk1pk2 <- congruently1 (receiver @@ nobody) (refl, keys) \(pk1, pk2, _) -> (pk1, pk2)
+  pks <- (receiver, pk1pk2) ~> sender @@ nobody
+  encr <- locally2 sender (singleton, bb) (singleton, pks) \(b1, b2) pks' -> liftIO (encryptS pks' b1 b2)
+  encrypted <- (sender, encr) ~> receiver @@ nobody
+  locally3 receiver (singleton, keys) (singleton, s) (singleton, encrypted)
+    \keys' s' encrypted' -> liftIO $ decryptS keys' s' encrypted'
 
 --------------------------------------------------
 -- 1-out-of-4 Oblivious transfer
@@ -157,7 +143,15 @@ ot4Insecure b1 b2 b3 b4 s1 s2 = do
 
   s1r <- (receiver, s1) ~> sender @@ nobody
   s2r <- (receiver, s2) ~> sender @@ nobody
-  (sender, \un -> return $ un singleton $ select4 (un singleton s1r) (un singleton s2r) b1 b2 b3 b4) ~~> receiver @@ nobody
+  b <- enclave (sender @@ nobody) do
+    s1r' <- naked refl s1r
+    s2r' <- naked refl s2r
+    b1' <- naked refl b1
+    b2' <- naked refl b2
+    b3' <- naked refl b3
+    b4' <- naked refl b4
+    pure $ select4 s1r' s2r' b1' b2' b3' b4'
+  (sender, b) ~> receiver @@ nobody
 
 -- Generate keys for OT, only one has a SK and the rest are fake
 genKeys4 ::
@@ -203,7 +197,7 @@ dec4 ::
 dec4 (_, _, _, _, sk) s1 s2 (c1, c2, c3, c4) = decryptRSA sk $ select4 s1 s2 c1 c2 c3 c4
 
 -- One out of two OT
-ot4 ::
+ot4 :: forall sender receiver m.
   (KnownSymbol sender, KnownSymbol receiver, MonadIO m, CRT.MonadRandom m) =>
   Located '[sender] Bool ->
   Located '[sender] Bool ->
@@ -216,52 +210,45 @@ ot4 b1 b2 b3 b4 s1 s2 = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
 
-  keys <- receiver `locally` \un -> (liftIO $ genKeys4 (un singleton s1) (un singleton s2))
-  pks <- (receiver, \un -> let (pk1, pk2, pk3, pk4, _) = (un singleton keys) in return (pk1, pk2, pk3, pk4)) ~~> sender @@ nobody
-  encrypted <-
-    ( sender,
-      \un ->
-        liftIO $
-          enc4
-            (un singleton pks)
-            (un singleton b1)
-            (un singleton b2)
-            (un singleton b3)
-            (un singleton b4)
-      )
-      ~~> receiver
-      @@ nobody
-  decrypted <-
-    receiver `locally` \un ->
-      liftIO $
-        dec4
-          (un singleton keys)
-          (un singleton s1)
-          (un singleton s2)
-          (un singleton encrypted)
-  return decrypted
+  keys <- locally2 receiver (singleton, s1) (singleton, s2) \s1' s2' -> liftIO $ genKeys4 s1' s2'
+  pk1234 <- congruently1 (receiver @@ nobody) (refl, keys) \(pk1, pk2, pk3, pk4, _) -> (pk1, pk2, pk3, pk4)
+  pks <- (receiver, pk1234) ~> sender @@ nobody
+  encr <- enclave (sender @@ nobody) do
+    pks' <- naked refl pks
+    b1' <- naked refl b1
+    b2' <- naked refl b2
+    b3' <- naked refl b3
+    b4' <- naked refl b4
+    locally' $ liftIO $ enc4 pks' b1' b2' b3' b4'
+  encrypted <- (sender, encr) ~> receiver @@ nobody
+  enclave (receiver @@ nobody) do
+    keys' <- naked refl keys
+    s1' <- naked refl s1
+    s2' <- naked refl s2
+    encrypted' <- naked refl encrypted
+    locally' $ liftIO $ dec4 keys' s1' s2' encrypted'
 
 -- Test function
 otTest :: (KnownSymbol p1, KnownSymbol p2, MonadIO m, CRT.MonadRandom m) => Choreo '[p1, p2] (CLI m) ()
 otTest = do
   let p1 = listedFirst :: Member p1 '[p1, p2]
   let p2 = listedSecond :: Member p2 '[p1, p2]
-  bb <- p1 `_locally` return (False, True)
-  b1 <- p1 `locally` \un -> pure . fst $ un singleton bb
-  b2 <- p1 `locally` \un -> pure . snd $ un singleton bb
-  s <- p2 `_locally` return False
+  bb <- p1 `locally` return (False, True)
+  b1 <- congruently1 (p1 @@ nobody) (refl, bb) fst
+  b2 <- congruently1 (p1 @@ nobody) (refl, bb) snd
+  s <- p2 `locally` return False
   otResultI <- ot2Insecure b1 b2 s
-  p2 `locally_` \un -> putOutput "OT2 insecure output:" $ un singleton otResultI
+  void $ locally1 p2 (singleton, otResultI) \res -> putOutput "OT2 insecure output:" res
   otResult <- ot2 bb s
-  p2 `locally_` \un -> putOutput "OT2 output:" $ un singleton otResult
+  void $ locally1 p2 (singleton, otResult) \res -> putOutput "OT2 output:" res
 
-  b3 <- p1 `_locally` return False
-  b4 <- p1 `_locally` return True
-  s2 <- p2 `_locally` return False
+  b3 <- p1 `locally` return False
+  b4 <- p1 `locally` return True
+  s2 <- p2 `locally` return False
   otResultI4 <- ot4Insecure b1 b2 b3 b4 s s2
-  p2 `locally_` \un -> putOutput "OT4 insecure output:" $ un singleton otResultI4
+  void $ locally1 p2 (singleton, otResultI4) \res -> putOutput "OT4 insecure output:" res
   otResult4 <- ot4 b1 b2 b3 b4 s s2
-  p2 `locally_` \un -> putOutput "OT4 output:" $ un singleton otResult4
+  void $ locally1 p2 (singleton, otResult4) \res -> putOutput "OT4 output:" res
 
 main :: IO ()
 main = do

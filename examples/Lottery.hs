@@ -10,7 +10,7 @@ import CLI
 import Choreography
 import Choreography.Network.Http
 import Control.Exception (Exception, throwIO)
-import Control.Monad (unless)
+import Control.Monad (unless, void)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Crypto.Hash (Digest)
 import Crypto.Hash qualified as Crypto
@@ -94,9 +94,7 @@ lottery clients servers analyst = do
           fanIn
             (inSuper servers server @@ nobody)
             ( \client -> do
-                serverShare <-
-                  inSuper clients client `locally` \un ->
-                    pure $ viewFacet un client clientShares `getLeaf` server
+                serverShare <- congruently1 (inSuper clients client @@ nobody) (refl, localize client clientShares) (`getLeaf` server)
                 (inSuper clients client, serverShare) ~> inSuper servers server @@ nobody
             )
       )
@@ -123,7 +121,7 @@ lottery clients servers analyst = do
   chosenShares <- servers `parallel` (\server un -> pure $ toList (viewFacet un server serverShares) !! un server ω)
   -- Servers forward shares to an analyist.
   allShares <- gather servers (analyst @@ nobody) chosenShares
-  analyst `locally_` \un -> putOutput "The answer is:" $ sum $ un singleton allShares
+  void $ locally1 analyst (singleton, allShares) (putOutput "The answer is:" . sum)
   where
     hash :: Int -> Int -> Digest Crypto.SHA256
     hash ρ ψ = Crypto.hash $ toStrict (Binary.encode ρ <> Binary.encode ψ)

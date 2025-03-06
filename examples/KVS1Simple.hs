@@ -31,6 +31,7 @@ module KVS1Simple where
 
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -83,9 +84,7 @@ kvs request stateRef = do
   -- send the request to the server
   request' <- (client, request) ~> server @@ nobody
   -- the server handles the response and creates a response
-  response <-
-    server `locally` \un ->
-      handleRequest (un server request') (un server stateRef)
+  response <- locally2 server (server, request') (server, stateRef) handleRequest
   -- send the response back to the client
   (server, response) ~> client @@ nobody
 
@@ -94,14 +93,14 @@ kvs request stateRef = do
 -- HIII :> (*>_*)
 mainChoreo :: Choreo Participants IO ()
 mainChoreo = do
-  stateRef <- server `_locally` newIORef (Map.empty :: State)
+  stateRef <- server `locally` newIORef (Map.empty :: State)
   loop stateRef
   where
     loop :: Located '["server"] (IORef State) -> Choreo Participants IO ()
     loop stateRef = do
-      request <- client `_locally` readRequest
+      request <- client `locally` readRequest
       response <- kvs request stateRef
-      client `locally_` \un -> do putStrLn ("> " ++ show (un client response))
+      void $ locally1 client (client, response) (putStrLn . ("> " ++) . show)
       loop stateRef
 
 main :: IO ()

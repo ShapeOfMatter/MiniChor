@@ -20,6 +20,7 @@ Inr _ => alices_terminal response;
 
 import CLI
 import Choreography
+import Control.Monad (void)
 import Data (TestArgs, reference)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
@@ -75,15 +76,16 @@ mainCho = do
   query <- cond (explicitSubset, (refl, choice)) (
       \case
         False -> (bob, getstr "Bob's query:") -~> alice @@ nobody
-        True -> alice `_locally` getstr "Alice's query:"
+        True -> alice `locally` getstr "Alice's query:"
     ) >>= flatten (alice @@ nobody) (alice @@ nobody) (alice @@ nobody)
   answerer <-
-    carroll `_locally` do
+    carroll `locally` do
       handlerName <- getstr "Carrol's function (reverse or alphabetize):"
       return $ fromMaybe carrollsDefault $ handlerName `lookup` carrollsFunctions
   query' <- (alice, query) ~> carroll @@ nobody
-  response <- (carroll, \un -> return $ un carroll answerer (un carroll query')) ~~> alice @@ bob @@ nobody
+  resp <- congruently2 (carroll @@ nobody) (refl, answerer) (refl, query') ($)
+  response <- (carroll, resp) ~> alice @@ bob @@ nobody
   (_ :: Located '["alice", "bob"] ()) <- cond (explicitSubset, (refl, choice)) \case
-    False -> bob `locally_` \un -> putstr "Recieved:" (un bob response)
-    True -> alice `locally_` \un -> putstr "Recieved:" (un alice response)
+    False -> void $ locally1 bob (bob, response) (putstr "Recieved:")
+    True -> void $ locally1 alice (alice, response) (putstr "Recieved:")
   return ()

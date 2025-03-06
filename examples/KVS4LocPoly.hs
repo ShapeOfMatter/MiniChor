@@ -35,6 +35,7 @@ module KVS4LocPoly where
 
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -88,12 +89,12 @@ type ReplicationStrategy a = Located '["primary"] Request -> a -> Choreo Partici
 -- | `nullReplicationStrategy` is a replication strategy that does not replicate the state.
 nullReplicationStrategy :: ReplicationStrategy (Located '["primary"] (IORef State))
 nullReplicationStrategy request stateRef = do
-  primary `locally` \un -> case un primary request of
+  locally2 primary (primary, request) (primary, stateRef) \req stRef -> case req of
     Put key value -> do
-      modifyIORef (un primary stateRef) (Map.insert key value)
+      modifyIORef stRef (Map.insert key value)
       return (Just value)
     Get key -> do
-      state <- readIORef (un primary stateRef)
+      state <- readIORef stRef
       return (Map.lookup key state)
 
 -- | `doBackup` relays a mutating request to a backup location.
@@ -111,10 +112,8 @@ doBackup locA locB request stateRef = do
   broadcast (locA, request) >>= \case
     Put _ _ -> do
       request' <- (locA, request) ~> locB @@ nobody
-      _ <-
-        (locB, \un -> handleRequest (un singleton request') (un singleton stateRef))
-          ~~> locA
-          @@ nobody
+      result <- locally2 locB (singleton, request') (singleton, stateRef) handleRequest
+      _ <- (locB, result) ~> locA @@ nobody
       return ()
     _ -> do
       return ()
@@ -126,7 +125,7 @@ primaryBackupReplicationStrategy request (primaryStateRef, backupStateRef) = do
   doBackup primary backup1 request backupStateRef
 
   -- process request on primary
-  primary `locally` \un -> handleRequest (un primary request) (un primary primaryStateRef)
+  locally2 primary (primary, request) (primary, primaryStateRef) handleRequest
 
 -- | `doubleBackupReplicationStrategy` is a replication strategy that replicates the state to two backup servers.
 doubleBackupReplicationStrategy ::
@@ -140,8 +139,7 @@ doubleBackupReplicationStrategy
     doBackup primary backup2 request backup2StateRef
 
     -- process request on primary
-    primary `locally` \un ->
-      handleRequest (un primary request) (un primary primaryStateRef)
+    locally2 primary (primary, request) (primary, primaryStateRef) handleRequest
 
 -- | `kvs` is a choreography that processes a single request at the client and returns the response.
 -- It uses the provided replication strategy to handle the request.
@@ -158,43 +156,43 @@ kvs request stateRefs replicationStrategy = do
 -- | `nullReplicationChoreo` is a choreography that uses `nullReplicationStrategy`.
 nullReplicationChoreo :: Choreo Participants IO ()
 nullReplicationChoreo = do
-  stateRef <- primary `_locally` newIORef (Map.empty :: State)
+  stateRef <- primary `locally` newIORef (Map.empty :: State)
   loop stateRef
   where
     loop :: Located '["primary"] (IORef State) -> Choreo Participants IO ()
     loop stateRef = do
-      request <- client `_locally` readRequest
+      request <- client `locally` readRequest
       response <- kvs request stateRef nullReplicationStrategy
-      client `locally_` \un -> do print (un client response)
+      void $ locally1 client (client, response) print
       loop stateRef
 
 -- | `primaryBackupChoreo` is a choreography that uses `primaryBackupReplicationStrategy`.
 primaryBackupChoreo :: Choreo Participants IO ()
 primaryBackupChoreo = do
-  primaryStateRef <- primary `_locally` newIORef (Map.empty :: State)
-  backupStateRef <- backup1 `_locally` newIORef (Map.empty :: State)
+  primaryStateRef <- primary `locally` newIORef (Map.empty :: State)
+  backupStateRef <- backup1 `locally` newIORef (Map.empty :: State)
   loop (primaryStateRef, backupStateRef)
   where
     loop :: (Located '["primary"] (IORef State), Located '["backup1"] (IORef State)) -> Choreo Participants IO ()
     loop stateRefs = do
-      request <- client `_locally` readRequest
+      request <- client `locally` readRequest
       response <- kvs request stateRefs primaryBackupReplicationStrategy
-      client `locally_` \un -> do print (un client response)
+      void $ locally1 client (client, response) print
       loop stateRefs
 
 -- | `doubleBackupChoreo` is a choreography that uses `doubleBackupReplicationStrategy`.
 doubleBackupChoreo :: Choreo Participants IO ()
 doubleBackupChoreo = do
-  primaryStateRef <- primary `_locally` newIORef (Map.empty :: State)
-  backup1StateRef <- backup1 `_locally` newIORef (Map.empty :: State)
-  backup2StateRef <- backup2 `_locally` newIORef (Map.empty :: State)
+  primaryStateRef <- primary `locally` newIORef (Map.empty :: State)
+  backup1StateRef <- backup1 `locally` newIORef (Map.empty :: State)
+  backup2StateRef <- backup2 `locally` newIORef (Map.empty :: State)
   loop (primaryStateRef, backup1StateRef, backup2StateRef)
   where
     loop :: (Located '["primary"] (IORef State), Located '["backup1"] (IORef State), Located '["backup2"] (IORef State)) -> Choreo Participants IO ()
     loop stateRefs = do
-      request <- client `_locally` readRequest
+      request <- client `locally` readRequest
       response <- kvs request stateRefs doubleBackupReplicationStrategy
-      client `locally_` \un -> do putStrLn ("> " ++ show (un client response))
+      void $ locally1 client (client, response) (putStrLn . ("> " ++) . show)
       loop stateRefs
 
 main :: IO ()

@@ -15,6 +15,7 @@ module RingLeader where
 
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State
 import GHC.TypeLits (KnownSymbol)
@@ -45,20 +46,22 @@ ringLeader r = loop r
 
     talkToRight :: Edge g -> Choreo g (StateT Label IO) Bool
     talkToRight (Edge left right) = do
-      ll <- left `_locally` get
+      ll <- left `locally` get
       labelLeft <- (left, ll) ~> right @@ nobody
-      labelRight <- right `_locally` get
+      labelRight <- right `locally` get
 
-      finished <-
-        right `locally` \un ->
-          return $ un singleton labelLeft == un singleton labelRight
+      finished <- locally2
+                    right
+                    (singleton, labelLeft)
+                    (singleton, labelRight)
+                    \lLeft lRight -> return $ lLeft == lRight
 
       broadcast (right, finished) >>= \case
         True -> do
-          right `_locally_` lift (putStrLn "I'm the leader")
+          right `locally_` lift (putStrLn "I'm the leader")
           return True
         False -> do
-          right `locally_` \un -> put (max (un singleton labelLeft) (un singleton labelRight))
+          void $ locally2 right (singleton, labelLeft) (singleton, labelRight) \lLeft lRight -> put (max lLeft lRight)
           return False
 
 $(mkLoc "nodeA")
