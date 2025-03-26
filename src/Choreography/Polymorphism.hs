@@ -121,8 +121,8 @@ localize :: (KnownSymbol l) => Member l ls -> Faceted ls common a -> Located (l 
 localize l (PIndexed f) = getFacet $ f l
 
 -- | In a context where unwrapping located values is possible, get the respective value stored in a `Faceted`.
-viewFacet :: (KnownSymbol l) => Unwrap l -> Member l ls -> Faceted ls common a -> a
-viewFacet un l = un First . localize l
+viewFacet :: (KnownSymbol l, KnownSymbols qs) => Member l ls -> Subset qs (l ': common) -> Faceted ls common a -> Choreo qs m a
+viewFacet l qs f = naked qs (localize l f)
 
 {-
 unsafeFacet :: [Maybe a] -> Member l ls -> Facet a common l -- providing this as a helper function is pretty sketchy, if we don't need it delete it.
@@ -140,25 +140,41 @@ parallel ::
   (KnownSymbols ls) =>
   -- | The parties who will do the computation must be present in the census.
   Subset ls ps ->
-  -- | The local computation has access to the identity of the party in question,
-  --   in additon to the usual unwrapper function.
-  (forall l. (KnownSymbol l) => Member l ls -> Unwrap l -> m a) -> -- Could promote this to PIndexed too, but ergonomics might be worse?
+  -- | The local computation.
+  m a ->
   Choreo ps m (Faceted ls '[] a)
-parallel ls m = fanOut \mls -> locally (inSuper ls mls) (m mls)
+parallel ls m = parallel0 ls $ const m
 
--- | Perform a local computation at all of a list of parties, yielding nothing.
+-- | Perform a local computation, that doesn't use any existing `Located` values and doesn't depend on the respective party's identity,
+--   at all of a list of parties, yielding a `Faceted`.
 parallel_ ::
   forall ls ps m.
   (KnownSymbols ls) =>
   Subset ls ps ->
-  (forall l. (KnownSymbol l) => Member l ls -> Unwrap l -> m ()) ->
+  m () ->
   Choreo ps m ()
 parallel_ ls m = void $ parallel ls m
 
--- | Perform a local computation, that doesn't use any existing `Located` values and doesn't depend on the respective party's identity,
---   at all of a list of parties, yielding a `Faceted`.
-_parallel :: forall ls a ps m. (KnownSymbols ls) => Subset ls ps -> m a -> Choreo ps m (Faceted ls '[] a)
-_parallel ls m = parallel ls \_ _ -> m
+-- | Perform a local computation at all of a list of parties, yielding a `Faceted`.
+parallel0 ::
+  forall ls a ps m.
+  (KnownSymbols ls) =>
+  -- | The parties who will do the computation must be present in the census.
+  Subset ls ps ->
+  -- | The local computation has access to the identity of the party in question.
+  (forall l. (KnownSymbol l) => Member l ls -> m a) -> -- Could promote this to PIndexed too, but ergonomics might be worse?
+  Choreo ps m (Faceted ls '[] a)
+parallel0 ls m = fanOut \mls -> locally (inSuper ls mls) (m mls)
+
+-- | Perform a local computation at all of a list of parties, yielding nothing.
+parallel0_ ::
+  forall ls ps m.
+  (KnownSymbols ls) =>
+  Subset ls ps ->
+  (forall l. (KnownSymbol l) => Member l ls -> m ()) ->
+  Choreo ps m ()
+parallel0_ ls m = void $ parallel0 ls m
+
 
 -- | Perform a given choreography for each of several parties, giving each of them a return value that form a new `Faceted`.
 fanOut ::

@@ -21,6 +21,7 @@ module Bookseller3LocPoly where
 import CLI
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data (deliveryDateOf, priceOf)
 import GHC.TypeLits
 import System.Environment
@@ -35,21 +36,22 @@ $(mkLoc "seller")
 bookseller :: (KnownSymbol a, KnownSymbols ps) => Member a ps -> Choreo ("seller" ': ps) (CLI m) ()
 bookseller someBuyer = do
   let theBuyer = inSuper consSet someBuyer
-  database <- seller `_locally` getInput "Enter the book database (for `Read`):"
-  buyer_budget <- theBuyer `_locally` getInput "Enter your total budget:"
+  database <- seller `locally` getInput "Enter the book database (for `Read`):"
+  buyer_budget <- theBuyer `locally` getInput "Enter your total budget:"
   -- the buyer reads the title of the book and sends it to the seller
   title <- (theBuyer, getstr "Enter the title of the book to buy") -~> seller @@ nobody
   -- the seller checks the price of the book and sends it to the buyer
-  price <- (seller, \un -> return $ priceOf (un seller database) (un seller title)) ~~> theBuyer @@ nobody
+  prc <- locally2 seller (seller, database) (seller, title) (\d t -> return $ priceOf d t)
+  price <- (seller, prc) ~> theBuyer @@ nobody
 
-  inBuyerBudget <- theBuyer `locally` (\un -> return $ un singleton price <= un singleton buyer_budget)
+  inBuyerBudget <- locally2 theBuyer (singleton, price) (singleton, buyer_budget) (\p b -> return $ p <= b)
   broadcast (theBuyer, inBuyerBudget) >>= \case
     True -> do
-      deliveryDate <- (seller, \un -> return $ deliveryDateOf (un seller database) (un seller title)) ~~> theBuyer @@ nobody
-
-      theBuyer `locally_` \un -> putOutput "The book will be delivered on:" $ un singleton deliveryDate
+      dd <- locally2 seller (seller, database) (seller, title) (\d t -> return $ deliveryDateOf d t)
+      deliveryDate <- (seller, dd) ~> theBuyer @@ nobody
+      void $ locally1 theBuyer (singleton, deliveryDate) (putOutput "The book will be delivered on:")
     False -> do
-      theBuyer `_locally_` putNote "The book's price is out of the budget"
+      theBuyer `locally_` putNote "The book's price is out of the budget"
 
 main :: IO ()
 main = do

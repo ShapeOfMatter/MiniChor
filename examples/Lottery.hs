@@ -78,15 +78,14 @@ lottery ::
   Member analyst census ->
   Choreo census (CLI m) ()
 lottery clients servers analyst = do
-  secret <- _parallel clients (getInput @Fp "secret:")
-  clientShares <-
-    clients `parallel` \client un ->
-      ( case tySpine @servers of
+  secret <- parallel clients (getInput @Fp "secret:")
+  clientShares <- fanOut \client -> enclave (inSuper clients client @@ nobody) (
+      case tySpine @servers of -- I guess this explains to GHC that we have KnownSymbols _servTail? IDK
           TyCons -> do
-            -- I guess this explains to GHC that we have KnownSymbols _servTail? IDK
-            freeShares <- liftIO $ sequence $ pure $ randomIO @Fp
-            return $ (viewFacet un client secret - sum freeShares) `qCons` freeShares
-      )
+            sec <- viewFacet client (First @@ nobody) secret
+            locally' do freeShares <- liftIO $ sequence $ pure $ randomIO @Fp
+                        return $ (sec - sum freeShares) `qCons` freeShares
+    )
   serverShares <-
     fanOut
       ( \server ->
@@ -99,26 +98,28 @@ lottery clients servers analyst = do
             )
       )
   -- 1) Each server selects a random number; τ is some multiple of the number of clients.
-  ρ <- _parallel servers (getInput "A random number from 1 to τ:")
+  ρ <- parallel servers (getInput "A random number from 1 to τ:")
   -- Salt value
-  ψ <- _parallel servers (randomRIO (2 ^ (18 :: Int), 2 ^ (20 :: Int)))
+  ψ <- parallel servers (randomRIO (2 ^ (18 :: Int), 2 ^ (20 :: Int)))
   -- 2) Each server computes and publishes the hash α = H(ρ, ψ) to serve as a commitment
-  α <- parallel servers \server un -> pure $ hash (viewFacet un server ψ) (viewFacet un server ρ)
+  α <- fanOut \server -> enclave (inSuper servers server @@ nobody) (hash <$> viewFacet server (First @@ nobody) ψ <*> viewFacet server (First @@ nobody) ρ)
+  --parallel servers \server un -> pure $ hash (viewFacet un server ) (viewFacet un server )
   α' <- gather servers servers α
   -- 3) Every server opens their commitments by publishing their ψ and ρ to each other
   ψ' <- gather servers servers ψ
   ρ' <- gather servers servers ρ
   -- 4) All servers verify each other's commitment by checking α = H(ρ, ψ)
-  parallel_
-    servers
-    ( \server un ->
-        unless
-          (un server α' == (hash <$> un server ψ' <*> un server ρ'))
-          (liftIO $ throwIO CommitmentCheckFailed)
-    )
+  void $ fanOut \server -> enclave (inSuper servers server @@ nobody) do
+         ψ'' <- naked (server @@ nobody) ψ'
+         ρ'' <- naked (server @@ nobody) ρ'
+         α'' <- naked (server @@ nobody) α'
+         unless (α'' == (hash <$> ψ'' <*> ρ'')) $ locally' (liftIO $ throwIO CommitmentCheckFailed)
   -- 5) If all the checks are successful, then sum random values to get the random index.
   ω <- congruently1 servers (refl, ρ') (\rho' -> sum rho' `mod` length (toLocs clients))
-  chosenShares <- servers `parallel` (\server un -> pure $ toList (viewFacet un server serverShares) !! un server ω)
+  chosenShares <- fanOut \server -> enclave (inSuper servers server @@ nobody) do
+                    ss <- viewFacet server (First @@ nobody) serverShares 
+                    omega <- naked (server @@ nobody) ω
+                    return $ toList ss !! omega
   -- Servers forward shares to an analyist.
   allShares <- gather servers (analyst @@ nobody) chosenShares
   void $ locally1 analyst (singleton, allShares) (putOutput "The answer is:" . sum)

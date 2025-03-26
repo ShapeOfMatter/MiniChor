@@ -8,6 +8,7 @@ module Bookseller1Simple where
 import CLI
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data (deliveryDateOf, priceOf)
 import System.Environment
 
@@ -19,45 +20,31 @@ type Participants = ["buyer", "seller"]
 -- | `bookseller` is a choreography that implements the bookseller protocol.
 bookseller :: Choreo Participants (CLI m) ()
 bookseller = do
-  database <- seller `_locally` getInput "Enter the book database (for `Read`):"
-  buyer_budget <- buyer `_locally` getInput "Enter your total budget:"
-  title <- buyer `_locally` getstr "Enter the title of the book to buy:"
+  database <- seller `locally` getInput "Enter the book database (for `Read`):"
+  buyer_budget <- buyer `locally` getInput "Enter your total budget:"
+  title <- buyer `locally` getstr "Enter the title of the book to buy:"
 
   title' <- (buyer, title) ~> seller @@ nobody
-  price <- seller `locally` \un -> return $ priceOf (un seller database) (un seller title')
+  price <- locally2 seller  (seller, database) (seller, title') \d t -> return $ priceOf d t
   price' <- (seller, price) ~> buyer @@ nobody
-  decision <- buyer `locally` \un -> return $ un buyer price' <= un buyer buyer_budget
+  decision <- locally2 buyer (buyer, price') (buyer, buyer_budget) \p b -> return $ p <= b
 
   broadcast (buyer, decision) >>= \case
     True -> do
-      deliveryDate <- seller `locally` \un -> return $ deliveryDateOf (un seller database) (un seller title')
+      deliveryDate <- locally2 seller (seller, database) (seller, title') \d t -> return $ deliveryDateOf d t
       deliveryDate' <- (seller, deliveryDate) ~> buyer @@ nobody
-      buyer `locally_` \un -> putOutput "The book will be delivered on:" $ un buyer deliveryDate'
+      void $ locally1 buyer (buyer, deliveryDate') \dd -> putOutput "The book will be delivered on:" dd
     False -> do
-      buyer `_locally_` putNote "The book's price is out of the budget"
+      buyer `locally_` putNote "The book's price is out of the budget"
 
--- `bookseller'` is a simplified version of `bookseller` that utilizes `~~>`
-bookseller' :: Choreo Participants (CLI m) ()
-bookseller' = do
-  database <- seller `_locally` getInput "Enter the book database (for `Read`):"
-  buyer_budget <- buyer `_locally` getInput "Enter your total budget:"
-  title <- (buyer, getstr "Enter the title of the book to buy:") -~> seller @@ nobody
-  price <- (seller, \un -> return $ priceOf (un seller database) (un seller title)) ~~> buyer @@ nobody
-
-  inBuyerBudget <- buyer `locally` (\un -> return $ un buyer price <= un buyer buyer_budget)
-  broadcast (buyer, inBuyerBudget) >>= \case
-    True -> do
-      deliveryDate <- (seller, \un -> return $ deliveryDateOf (un seller database) (un seller title)) ~~> buyer @@ nobody
-      buyer `locally_` \un -> putOutput "The book will be delivered on:" $ un buyer deliveryDate
-    False -> do
-      buyer `_locally_` putNote "The book's price is out of the budget"
+-- removed bookseller' because it's only distinguished by ~~>, which is sugar we no longer have.
 
 main :: IO ()
 main = do
   [loc] <- getArgs
   delivery <- case loc of
-    "buyer" -> runCLIIO $ runChoreography cfg bookseller' "buyer"
-    "seller" -> runCLIIO $ runChoreography cfg bookseller' "seller"
+    "buyer" -> runCLIIO $ runChoreography cfg bookseller "buyer"
+    "seller" -> runCLIIO $ runChoreography cfg bookseller "seller"
     _ -> error "unknown party"
   print delivery
   where

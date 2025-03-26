@@ -47,7 +47,7 @@ module Bank2PC where
 
 import CLI
 import Choreography
-import Control.Monad (unless)
+import Control.Monad (unless, void)
 import Data (TestArgs, reference)
 import Data.List (intercalate, transpose)
 import Data.List.Split (splitOn)
@@ -133,18 +133,20 @@ handleTransaction ::
 handleTransaction (aliceBalance, bobBalance) tx = do
   -- Voting Phase
   txa <- (coordinator, tx) ~> alice @@ nobody
-  voteAlice <- (alice, \un -> do { return $ fst $ validate "alice" (un alice aliceBalance) (un alice txa) }) ~~> coordinator @@ nobody
+  va <- locally2 alice (alice, aliceBalance) (alice, txa) \b t -> return $ fst $ validate "alice" b t
+  voteAlice <- (alice, va) ~> coordinator @@ nobody
   txb <- (coordinator, tx) ~> bob @@ nobody
-  voteBob <- (bob, \un -> do { return $ fst $ validate "bob" (un bob bobBalance) (un bob txb) }) ~~> coordinator @@ nobody
+  vb <- locally2 bob (bob, bobBalance) (bob, txb) \b t -> return $ fst $ validate "bob" b t
+  voteBob <- (bob, vb) ~> coordinator @@ nobody
 
   -- Check if the transaction can be committed
-  canCommit <- coordinator `locally` \un -> do return $ un coordinator voteAlice && un coordinator voteBob
+  canCommit <- locally2 coordinator (coordinator, voteAlice) (coordinator, voteBob) (\a b -> return (a && b))
 
   -- Commit Phase
   broadcast (coordinator, canCommit) >>= \case
     True -> do
-      aliceBalance' <- alice `locally` \un -> do return $ snd $ validate "alice" (un alice aliceBalance) (un alice txa)
-      bobBalance' <- bob `locally` \un -> do return $ snd $ validate "bob" (un bob bobBalance) (un bob txb)
+      aliceBalance' <- locally2 alice (alice, aliceBalance) (alice, txa) (\b t -> return $ snd $ validate "alice" b t)
+      bobBalance' <- locally2 bob (bob, bobBalance) (bob, txb) (\b t -> return $ snd $ validate "bob" b t)
       return (canCommit, (aliceBalance', bobBalance'))
     False -> do
       return (canCommit, (aliceBalance, bobBalance))
@@ -160,17 +162,17 @@ bank state = do
       @@ nobody
   (committed, state') <- handleTransaction state tx
   committed' <- (coordinator, committed) ~> client @@ nobody
-  client `locally_` \un -> putOutput "Committed?" (un client committed')
-  alice `locally_` \un -> putOutput "Alice's balance:" (un alice (fst state'))
-  bob `locally_` \un -> putOutput "Bob's balance:" (un bob (snd state'))
-  c <- coordinator `locally` (\un -> return $ null $ un coordinator tx)
+  void $ locally1 client (client, committed') (putOutput "Committed?")
+  void $ locally1 alice (alice, (fst state')) (putOutput "Alice's balance:")
+  void $ locally1 bob (bob, (snd state')) (putOutput "Bob's balance:")
+  c <- locally1 coordinator (coordinator, tx) (return . null)
   broadcast (coordinator, c) >>= (`unless` bank state') -- repeat
 
 -- | `startBank` is a choreography that initializes the states and starts the bank application.
 startBank :: Choreo Participants (CLI m) ()
 startBank = do
-  aliceBalance <- alice `_locally` return 0
-  bobBalance <- bob `_locally` return 0
+  aliceBalance <- alice `locally` return 0
+  bobBalance <- bob `locally` return 0
   bank (aliceBalance, bobBalance)
 
 main :: IO ()

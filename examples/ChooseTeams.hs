@@ -6,7 +6,7 @@ module ChooseTeams where
 
 import CLI
 import Choreography
-import Control.Monad (when)
+import Control.Monad (void)
 import Data (TestArgs, reference)
 import Data.Foldable (toList)
 import Data.Maybe (catMaybes)
@@ -38,8 +38,10 @@ game = do
     if toLocTm p `elem` red
       then (p, Just <$> getInput @Int "A number to send:") -~> players
       else enclave players $ return Nothing
-  parallel_ players \p un ->
-    when (toLocTm p `elem` blue) $
-      putOutput "Numbers recieved:" $
-        catMaybes . toList $
-          un p numbers
+  void $ fanOut \p -> enclave ((players `inSuper` p) @@ nobody)
+    if (toLocTm p `elem` blue)
+      then do
+        n <- naked (p @@ nobody) numbers
+        locally' $ putOutput "Numbers recieved:" $ catMaybes . toList $ n
+      else 
+        return ()

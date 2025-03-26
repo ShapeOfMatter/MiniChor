@@ -119,7 +119,7 @@ tests' =
               mapConcurrently
                 ( \(name, inputs) ->
                     runCLIStateful inputs $
-                      runChoreography config Bookseller1Simple.bookseller' name
+                      runChoreography config Bookseller1Simple.bookseller name
                 )
                 situation
             return $ (read <$> delivery) === maybeToList (reference args)

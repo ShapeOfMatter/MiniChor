@@ -64,7 +64,7 @@ game = do
         (dealer, card1) ~> everyone
       )
       >>= naked everyone
-  wantsNextCard <- parallel players \_ _ -> do
+  wantsNextCard <- parallel players do
     putNote $ "All cards on the table: " ++ show hand1
     getInput "I'll ask for another? [True/False]"
   hand2 <- fanOut \(player :: Member player players) ->
@@ -79,7 +79,8 @@ game = do
         else return [getLeaf hand1 player]
   tblCrd <- locally dealer (getInput "Enter a single card for everyone:")
   tableCard <- (dealer, tblCrd) ~> players
-  void $ parallel players \player un -> do
-    let hand = un player tableCard : viewFacet un player hand2
-    putNote $ "My hand: " ++ show hand
-    putOutput "My win result:" $ sum hand > card 19
+  void $ fanOut \p -> let player = inSuper players p
+                      in enclave (player @@ nobody) do
+    hand <- (:) <$> naked (p @@ nobody) tableCard <*> viewFacet p (First @@ nobody) hand2
+    locally' do putNote $ "My hand: " ++ show hand
+                putOutput "My win result:" $ sum hand > card 19

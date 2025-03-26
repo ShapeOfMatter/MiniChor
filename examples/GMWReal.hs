@@ -110,7 +110,7 @@ fAnd ::
   Choreo parties (CLI m) (Faceted parties '[] Bool)
 fAnd uShares vShares = do
   let genBools = sequence $ pure randomIO
-  a_j_s :: Faceted parties '[] (Quire parties Bool) <- _parallel (allOf @parties) genBools
+  a_j_s :: Faceted parties '[] (Quire parties Bool) <- parallel (allOf @parties) genBools
   bs :: Faceted parties '[] Bool <- fanOut \p_j -> do
     let p_j_name = toLocTm p_j
     b_i_s <- fanIn (p_j @@ nobody) \p_i ->
@@ -126,14 +126,12 @@ fAnd uShares vShares = do
           -- localize p_j vSHares is party j's share of v
           enclaveTo (p_i @@ p_j @@ nobody) (listedSecond @@ nobody) (ot2 bb $ localize p_j vShares)
     congruently1 (p_j @@ nobody) (refl, b_i_s) xor
-  parallel (allOf @parties) \p_i un ->
+  fanOut \p_i -> enclave (p_i @@ nobody) do
     let computeShare u v a_js b = xor $ [u && v, b] ++ toList (qModify p_i (const False) a_js)
-     in pure $
-          computeShare
-            (viewFacet un p_i uShares)
-            (viewFacet un p_i vShares)
-            (viewFacet un p_i a_j_s)
-            (viewFacet un p_i bs)
+    computeShare <$> viewFacet p_i (First @@ nobody) uShares
+                 <*> viewFacet p_i (First @@ nobody) vShares
+                 <*> viewFacet p_i (First @@ nobody) a_j_s
+                 <*> viewFacet p_i (First @@ nobody) bs
 
 gmw ::
   forall parties m.
@@ -161,7 +159,8 @@ gmw circuit = case circuit of
     -- process an XOR gate
     lResult <- gmw l
     rResult <- gmw r
-    parallel (allOf @parties) \p un -> pure $ xor [viewFacet un p lResult, viewFacet un p rResult]
+    fanOut \p -> enclave (p @@ nobody) $
+      xor <$> ((flip (:) <$> (: [])) <$> viewFacet p (First @@ nobody) lResult <*> viewFacet p (First @@ nobody) rResult)
 
 mpc ::
   forall parties m.
@@ -171,7 +170,7 @@ mpc ::
 mpc circuit = do
   outputWire <- gmw circuit
   result <- reveal outputWire
-  void $ _parallel (allOf @parties) $ putOutput "The resulting bit:" result
+  void $ parallel (allOf @parties) $ putOutput "The resulting bit:" result
 
 mpcmany ::
   (KnownSymbols parties, MonadIO m, CRT.MonadRandom m) =>

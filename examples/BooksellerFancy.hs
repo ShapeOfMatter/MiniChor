@@ -12,6 +12,7 @@ module BooksellerFancy where
 import CLI
 import Choreography
 import Choreography.Network.Http
+import Control.Monad (void)
 import Data (deliveryDateOf, priceOf)
 import System.Environment
 
@@ -42,10 +43,11 @@ bookseller mkDecision = do
     enclave buyerAndSeller $
       broadcast (buyer, decision) >>= \case
         True -> do
-          deliveryDate <- (seller, \un -> return $ deliveryDateOf (un seller database) (un seller title)) ~~> buyer @@ nobody
-          buyer `locally_` \un -> putstr "The book will be delivered on:" $ show (un buyer deliveryDate)
+          dd <- locally2 seller (seller, database) (seller, title) (\d t -> return $ deliveryDateOf d t)
+          deliveryDate <- (seller, dd) ~> buyer @@ nobody
+          void $ locally1 buyer (buyer, deliveryDate) (putstr "The book will be delivered on:" . show)
         False -> do
-          buyer `locally_` putNote "The book's price is out of the budget"
+          void $ buyer `locally` putNote "The book's price is out of the budget"
 
   return ()
   where
@@ -59,7 +61,7 @@ bookseller mkDecision = do
 mkDecision1 :: Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)
 mkDecision1 price = do
   budget <- buyer `locally` getInput "What are you willing to pay?"
-  buyer `locally` \un -> return $ un buyer price <= un buyer budget
+  locally2 buyer (buyer, price) (buyer, budget) \p b -> return $ p <= b
 
 -- | `mkDecision2` asks supporters how much they're willing to contribute and checks
 -- if the buyer's budget is greater than the price of the book minus all supporters' contribution
@@ -69,10 +71,8 @@ mkDecision2 price = do
 
   contribs <- fanIn @supporters explicitSubset $ \supporter ->
     (Later supporter, getInput "How much you're willing to contribute?") -~> buyer @@ nobody
-  contrib <-
-    buyer `locally` \un ->
-      return $ sum (un buyer contribs)
-  buyer `locally` \un -> return $ un buyer price <= un buyer budget + un buyer contrib
+  contrib <- locally1 buyer (buyer, contribs) (return . sum)
+  locally3 buyer (buyer, price) (buyer, budget) (buyer, contrib) \p b c -> return $ p <= b + c
 
 main :: IO ()
 main = do

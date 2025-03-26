@@ -46,8 +46,9 @@ handleRequest ::
 handleRequest request (primaryStateRef, backupsStateRefs) =
   broadcast (primary, request) >>= \case
     Put key value -> do
-      oks <- parallel backups \backup un ->
-        handlePut (viewFacet un backup backupsStateRefs) key value
+      oks <- fanOut \backup -> enclave (inSuper backups backup @@ nobody) do
+               bsr <- viewFacet backup (First @@ nobody) backupsStateRefs
+               locally' $ handlePut bsr key value
       gathered <- gather backups (primary @@ nobody) oks
       locally2 primary (primary, gathered) (primary, primaryStateRef) \gathered' stRef ->
         if all isOk gathered'
@@ -80,7 +81,7 @@ kvs request stateRefs = do
 mainChoreo :: (KnownSymbols backups) => Choreo ("client" ': "primary" ': backups) IO ()
 mainChoreo = do
   stateRef <- primary `locally` newIORef "I'm Primary"
-  bStRefs <- parallel backups \p _ -> newIORef ("I'm " ++ toLocTm p)
+  bStRefs <- parallel0 backups \p -> newIORef ("I'm " ++ toLocTm p)
   loop (stateRef, bStRefs)
   where
     primary :: forall ps p. Member "primary" (p ': "primary" ': ps)

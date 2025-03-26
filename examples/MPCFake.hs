@@ -7,6 +7,7 @@ module MPCFake where
 
 import CLI
 import Choreography
+import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data (TestArgs, reference)
 import Data.Kind (Type)
@@ -130,7 +131,7 @@ computeWire trustedAnd parties circuit = case circuit of
   XorGate l r -> do
     lResult <- compute l
     rResult <- compute r
-    parties `parallel` \p un -> pure (viewFacet un p lResult /= viewFacet un p rResult)
+    fanOut \p -> enclave (inSuper parties p @@ nobody) $ (/=) <$> viewFacet p (First @@ nobody) lResult <*> viewFacet p (First @@ nobody) rResult
   where
     compute = computeWire trustedAnd parties
     partyNames = toLocs parties
@@ -143,4 +144,4 @@ mpc circuit = do
   let parties = consSuper refl
   outputWire <- computeWire trusted3rdParty parties circuit
   result <- enclave parties $ reveal outputWire
-  parties `parallel_` \p un -> putOutput "The resulting bit:" $ un p result
+  void $ fanOut \p -> enclave (Later p @@ nobody) $ naked (p @@ nobody) result >>= (locally' . putOutput "The resulting bit:")

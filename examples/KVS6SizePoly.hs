@@ -62,12 +62,13 @@ naryReplicationStrategy ::
 naryReplicationStrategy primary backups =
   ReplicationStrategy
     { primary,
-      setup = servers `_parallel` newIORef (Map.empty :: State),
+      setup = servers `parallel` newIORef (Map.empty :: State),
       handle = \stateRef pHas request -> do
         request' <- (primary, (pHas, request)) ~> servers
-        localResponse <-
-          servers `parallel` \server un ->
-            handleRequest (viewFacet un server stateRef) (un server request')
+        localResponse <- fanOut \server -> enclave (inSuper servers server @@ nobody) do
+          strf <- viewFacet server (First @@ nobody) stateRef
+          r' <- naked (server @@ nobody) request'
+          locally' $ handleRequest strf r'
         responses <- gather servers (primary @@ nobody) localResponse
         response <- congruently1
                       (primary @@ nobody)
@@ -159,7 +160,7 @@ naryHumans primary backups =
       setup = primary `locally` newIORef (Map.empty :: State),
       handle = \stateRef pHas request -> do
         request' <- (primary, (pHas, request)) ~> backups
-        backupResponse <- backups `parallel` \server un -> readResponse (un server request')
+        backupResponse <- fanOut \server -> enclave (inSuper backups server @@ nobody) (naked (server @@ nobody) request' >>= locally' . readResponse)
         localResponse <- locally2 primary (singleton, stateRef) (pHas, request) handleRequest
         responses <- gather backups (primary @@ nobody) backupResponse
         response <- congruently2
