@@ -10,7 +10,6 @@ import Choreography
 import Choreography.Network.Http
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Crypto.Random.Types qualified as CRT
 import Data (TestArgs, reference)
 import Data.Foldable (toList)
 import Data.Kind (Type)
@@ -86,17 +85,17 @@ genShares p x = quorum1 p gs'
       return $ qCons (xor (qCons @q x freeShares)) freeShares
 
 secretShare ::
-  forall parties p m.
-  (KnownSymbols parties, KnownSymbol p, MonadIO m) =>
+  forall parties p .
+  (KnownSymbols parties, KnownSymbol p) =>
   Member p parties ->
   Located '[p] Bool ->
-  Choreo parties m (Faceted parties '[] Bool)
+  Choreo parties (Faceted parties '[] Bool)
 secretShare p value = do
   shares <- locally1 p (singleton, value) (genShares p)
   PIndexed fs <- scatter p (allOf @parties) shares
   fanOut (\q -> othersForget (q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
 
-reveal :: forall ps m. (KnownSymbols ps) => Faceted ps '[] Bool -> Choreo ps m Bool
+reveal :: forall ps . (KnownSymbols ps) => Faceted ps '[] Bool -> Choreo ps Bool
 reveal shares = xor <$> (do ss <- gather ps ps shares
                             naked ss ps)
   where
@@ -104,11 +103,11 @@ reveal shares = xor <$> (do ss <- gather ps ps shares
 
 -- use OT to do multiplication
 fAnd ::
-  forall parties m.
-  (KnownSymbols parties, MonadIO m, CRT.MonadRandom m) =>
+  forall parties .
+  (KnownSymbols parties) =>
   Faceted parties '[] Bool ->
   Faceted parties '[] Bool ->
-  Choreo parties (CLI m) (Faceted parties '[] Bool)
+  Choreo parties (Faceted parties '[] Bool)
 fAnd uShares vShares = do
   let genBools = sequence $ pure randomIO
   a_j_s :: Faceted parties '[] (Quire parties Bool) <- parallel (allOf @parties) genBools
@@ -135,10 +134,10 @@ fAnd uShares vShares = do
                  <*> viewFacet p_i (First @@ nobody) bs
 
 gmw ::
-  forall parties m.
-  (KnownSymbols parties, MonadIO m, CRT.MonadRandom m) =>
+  forall parties .
+  (KnownSymbols parties) =>
   Circuit parties ->
-  Choreo parties (CLI m) (Faceted parties '[] Bool)
+  Choreo parties (Faceted parties '[] Bool)
 gmw circuit = case circuit of
   InputWire p -> do
     -- process a secret input value from party p
@@ -146,7 +145,7 @@ gmw circuit = case circuit of
     secretShare p value
   LitWire b -> do
     -- process a publicly-known literal value
-    let chooseShare :: forall p. (KnownSymbol p) => Member p parties -> Choreo parties (CLI m) (Located '[p] Bool)
+    let chooseShare :: forall p. (KnownSymbol p) => Member p parties -> Choreo parties (Located '[p] Bool)
         chooseShare p = enclave (p @@ nobody) $ case p of
           First -> pure b
           Later _ -> pure False
@@ -164,19 +163,19 @@ gmw circuit = case circuit of
       xor <$> ((flip (:) <$> (: [])) <$> viewFacet p (First @@ nobody) lResult <*> viewFacet p (First @@ nobody) rResult)
 
 mpc ::
-  forall parties m.
-  (KnownSymbols parties, MonadIO m, CRT.MonadRandom m) =>
+  forall parties .
+  (KnownSymbols parties) =>
   Circuit parties ->
-  Choreo parties (CLI m) ()
+  Choreo parties ()
 mpc circuit = do
   outputWire <- gmw circuit
   result <- reveal outputWire
   void $ parallel (allOf @parties) $ putOutput "The resulting bit:" result
 
 mpcmany ::
-  (KnownSymbols parties, MonadIO m, CRT.MonadRandom m) =>
+  (KnownSymbols parties) =>
   Circuit parties ->
-  Choreo parties (CLI m) ()
+  Choreo parties ()
 mpcmany circuit = do
   mpc circuit
 

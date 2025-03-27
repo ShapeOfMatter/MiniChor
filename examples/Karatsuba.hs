@@ -28,7 +28,9 @@ module Karatsuba where
 
 import Choreography
 import Choreography.Network.Local
+import CLI (runCLIIO)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.Async (mapConcurrently_)
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
@@ -74,7 +76,7 @@ karatsuba ::
   Member c Participants ->
   Located '[a] Integer ->
   Located '[a] Integer ->
-  Choreo Participants IO (Located '[a] Integer)
+  Choreo Participants (Located '[a] Integer)
 karatsuba a b c n1 n2 = do
   done <- congruently2 (a @@ nobody) (refl, n1) (refl, n2) \n1' n2' -> n1' < 10 || n2' < 10
   broadcast (a, done)
@@ -113,18 +115,18 @@ karatsuba a b c n1 n2 = do
               h2 = n2' `div` splitter
               l2 = n2' `mod` splitter
 
-mainChoreo :: Integer -> Integer -> Choreo Participants IO ()
+mainChoreo :: Integer -> Integer -> Choreo Participants ()
 mainChoreo n1' n2' = do
   n1 <- primary `locally` pure n1'
   n2 <- primary `locally` pure n2'
   result <- karatsuba primary worker1 worker2 n1 n2
-  void $ locally1 primary (primary, result) print
+  void $ locally1 primary (primary, result) $ liftIO . print
 
 main :: IO ()
 main = do
   [n1, n2] <- map read <$> getArgs
   config <- mkLocalConfig locations
-  mapConcurrently_ (runChoreography config (mainChoreo n1 n2)) locations
+  mapConcurrently_ (runCLIIO . runChoreography config (mainChoreo n1 n2)) locations
   return ()
   where
     locations = ["primary", "worker1", "worker2"]

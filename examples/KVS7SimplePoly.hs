@@ -7,7 +7,9 @@ module KVS7SimplePoly where
 -- # This example was carried over from earlier work, likely HasChor. It doesn't yet have a unit test attached to it.
 
 import Choreography
+import CLI (CLI, runCLIIO)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import Data.IORef (IORef, newIORef, readIORef)
 
 type Response = Int
@@ -24,14 +26,14 @@ data Request
   | Put Key Int
   deriving (Eq, Read, Show)
 
-handleGet :: IORef State -> Key -> IO Response
+handleGet :: IORef State -> Key -> CLI IO Response
 handleGet s k = do
-  readIORef s >>= putStrLn
+  liftIO (readIORef s) >>= (liftIO . putStrLn)
   return $ length k
 
-handlePut :: IORef State -> Key -> Int -> IO Response
+handlePut :: IORef State -> Key -> Int -> CLI IO Response
 handlePut s k v = do
-  readIORef s >>= putStrLn
+  liftIO (readIORef s) >>= (liftIO . putStrLn)
   return . fromEnum $ v /= length k
 
 isOk :: Response -> Bool
@@ -42,7 +44,7 @@ handleRequest ::
   (KnownSymbols backups) =>
   Located '["primary"] Request ->
   (Located '["primary"] (IORef State), Faceted backups '[] (IORef State)) ->
-  Choreo ("primary" ': backups) IO (Located '["primary"] Response)
+  Choreo ("primary" ': backups) (Located '["primary"] Response)
 handleRequest request (primaryStateRef, backupsStateRefs) =
   broadcast (primary, request) >>= \case
     Put key value -> do
@@ -65,7 +67,7 @@ kvs ::
   (KnownSymbols backups) =>
   Located '["client"] Request ->
   (Located '["primary"] (IORef State), Faceted backups '[] (IORef State)) ->
-  Choreo ("client" ': "primary" ': backups) IO (Located '["client"] Response)
+  Choreo ("client" ': "primary" ': backups) (Located '["client"] Response)
 kvs request stateRefs = do
   request' <- (client, request) ~> primary @@ nobody
   response <- enclave (primary @@ backups) (handleRequest request' stateRefs)
@@ -78,10 +80,10 @@ kvs request stateRefs = do
     primary = listedSecond
     backups = consSuper $ consSuper refl
 
-mainChoreo :: (KnownSymbols backups) => Choreo ("client" ': "primary" ': backups) IO ()
+mainChoreo :: (KnownSymbols backups) => Choreo ("client" ': "primary" ': backups) ()
 mainChoreo = do
-  stateRef <- primary `locally` newIORef "I'm Primary"
-  bStRefs <- parallel0 backups \p -> newIORef ("I'm " ++ toLocTm p)
+  stateRef <- primary `locally` liftIO (newIORef "I'm Primary")
+  bStRefs <- parallel0 backups \p -> liftIO (newIORef ("I'm " ++ toLocTm p))
   loop (stateRef, bStRefs)
   where
     primary :: forall ps p. Member "primary" (p ': "primary" ': ps)
@@ -90,10 +92,10 @@ mainChoreo = do
     client = listedFirst
     backups = consSuper $ consSuper refl
     loop state = do
-      request <- locally client $ read @Request <$> getLine
+      request <- locally client $ read @Request <$> liftIO getLine
       response <- kvs request state
-      void $ locally1 client (client, response) (putStrLn . ("> " ++) . show)
+      void $ locally1 client (client, response) (liftIO . putStrLn . ("> " ++) . show)
       loop state
 
 main :: IO ()
-main = runChoreo (mainChoreo @'["A", "B", "C", "D", "E", "F"])
+main = runCLIIO $ runChoreo (mainChoreo @'["A", "B", "C", "D", "E", "F"])

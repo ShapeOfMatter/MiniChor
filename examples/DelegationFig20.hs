@@ -70,7 +70,7 @@ carrollsFunctions =
 carrollsDefault :: String -> String
 carrollsDefault = const "No Handler"
 
-mainCho :: Choreo Participants (CLI m) ()
+mainCho :: Choreo Participants ()
 mainCho = do
   choice <- (alice, getInput "Alice's choice:") -~> alice @@ bob @@ nobody
   query <- cond (explicitSubset, (refl, choice)) (

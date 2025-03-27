@@ -126,10 +126,9 @@ parse s = tx
 -- If the transaction is committed, it will update the state.
 -- Otherwise, it will keep the state unchanged.
 handleTransaction ::
-  (Monad m) =>
   State ->
   Located '["coordinator"] Transaction ->
-  Choreo Participants m (Located '["coordinator"] Bool, State)
+  Choreo Participants (Located '["coordinator"] Bool, State)
 handleTransaction (aliceBalance, bobBalance) tx = do
   -- Voting Phase
   txa <- (coordinator, tx) ~> alice @@ nobody
@@ -152,7 +151,7 @@ handleTransaction (aliceBalance, bobBalance) tx = do
       return (canCommit, (aliceBalance, bobBalance))
 
 -- | `bank` loops forever and handles transactions.
-bank :: State -> Choreo Participants (CLI m) ()
+bank :: State -> Choreo Participants ()
 bank state = do
   tx <-
     ( client,
@@ -169,7 +168,7 @@ bank state = do
   broadcast (coordinator, c) >>= (`unless` bank state') -- repeat
 
 -- | `startBank` is a choreography that initializes the states and starts the bank application.
-startBank :: Choreo Participants (CLI m) ()
+startBank :: Choreo Participants ()
 startBank = do
   aliceBalance <- alice `locally` return 0
   bobBalance <- bob `locally` return 0

@@ -4,6 +4,7 @@ module Choreography.Choreography where
 import Choreography.Core
 import Choreography.Locations
 import Choreography.Locations.Batteries (ExplicitMember (..))
+import CLI (CLI)
 import GHC.TypeLits
 
 -- * Computation /per se/
@@ -14,8 +15,8 @@ import GHC.TypeLits
 locally' ::
   (KnownSymbol l) =>
   -- | The local action(s)
-  m a ->
-  Choreo '[l] m a
+  CLI IO a ->
+  Choreo '[l] a
 locally' m = Locally m
 
 -- | Perform a local computation at a given location.
@@ -24,8 +25,8 @@ locally ::
   -- | Location performing the local computation.
   Member l ps ->
   -- | The local computation
-  m a ->
-  Choreo ps m (Located '[l] a)
+  CLI IO a ->
+  Choreo ps (Located '[l] a)
 
 infix 4 `locally`
 
@@ -34,37 +35,37 @@ locally l m = enclave (l @@ nobody) $ locally' m
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
 congruently1 ::
-  forall ls a census owners1 arg1 m.
+  forall ls a census owners1 arg1 .
   (KnownSymbols ls) =>
   Subset ls census ->
   (Subset ls owners1, Located owners1 arg1) ->
   (arg1 -> a) ->
-  Choreo census m (Located ls a)
+  Choreo census (Located ls a)
 congruently1 present (owns1, arg1) f = enclave present $ f <$> naked arg1 owns1
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
 congruently2 ::
-  forall ls a census owners1 arg1 owners2 arg2 m.
+  forall ls a census owners1 arg1 owners2 arg2 .
   (KnownSymbols ls) =>
   Subset ls census ->
   (Subset ls owners1, Located owners1 arg1) ->
   (Subset ls owners2, Located owners2 arg2) ->
   (arg1 -> arg2 -> a) ->
-  Choreo census m (Located ls a)
+  Choreo census (Located ls a)
 congruently2 present (owns1, arg1) (owns2, arg2) f = enclave present $ f <$> naked arg1 owns1 <*> naked arg2 owns2
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
 congruently3 ::
-  forall ls a census owners1 arg1 owners2 arg2 owners3 arg3 m.
+  forall ls a census owners1 arg1 owners2 arg2 owners3 arg3 .
   (KnownSymbols ls) =>
   Subset ls census ->
   (Subset ls owners1, Located owners1 arg1) ->
   (Subset ls owners2, Located owners2 arg2) ->
   (Subset ls owners3, Located owners3 arg3) ->
   (arg1 -> arg2 -> arg3 -> a) ->
-  Choreo census m (Located ls a)
+  Choreo census (Located ls a)
 congruently3 present (owns1, arg1) (owns2, arg2) (owns3, arg3) f = enclave present $ f <$> naked arg1 owns1 <*> naked arg2 owns2 <*> naked arg3 owns3
 
 
@@ -74,7 +75,7 @@ flatten :: (KnownSymbols ls)
         -> Subset ls ms
         -> Subset ls ns
         -> Located ms (Located ns a)
-        -> Choreo census m (Located ls a)
+        -> Choreo census (Located ls a)
 flatten present ownsOuter ownsInner nested =
     enclave present do l <- naked nested ownsOuter
                        naked l ownsInner
@@ -84,7 +85,7 @@ othersForget :: (KnownSymbols ls)
              => Subset ls census
              -> Subset ls owners
              -> Located owners a
-             -> Choreo census m (Located ls a)
+             -> Choreo census (Located ls a)
 othersForget present owns located = enclave present $ naked located owns
 
 
@@ -118,15 +119,15 @@ broadcast' ::
   Member l ps ->
   -- | Proof the sender knows the value, the value.
   (Member l ls, Located ls a) ->
-  Choreo ps m a
+  Choreo ps a
 broadcast' l a = Broadcast l a
 
 -- | Send a value from one party to the entire census.
 broadcast ::
-  forall l a ps ls m s.
+  forall l a ps ls s.
   (Show a, Read a, KnownSymbol l, KnownSymbols ps, CanSend s l a ls ps) =>
   s ->
-  Choreo ps m a
+  Choreo ps a
 broadcast s = broadcast' (presentToSend s) (ownsMessagePayload s, structMessagePayload s)
 
 -- | Communication between a sender and a list of receivers.
@@ -142,7 +143,7 @@ broadcast s = broadcast' (presentToSend s) (ownsMessagePayload s, structMessageP
   s ->
   -- | The recipients.
   Subset ls' ps ->
-  Choreo ps m (Located ls' a)
+  Choreo ps (Located ls' a)
 
 infix 4 ~>
 
@@ -157,12 +158,12 @@ enclaveTo ::
   (KnownSymbols ls) =>
   Subset ls ps ->
   Subset rs ls ->
-  Choreo ls m (Located rs a) ->
-  Choreo ps m (Located rs a)
+  Choreo ls (Located rs a) ->
+  Choreo ps (Located rs a)
 enclaveTo proof1 proof2 ch = EnclaveTo proof1 proof2 ch
 
 -- | Lift a choreography involving fewer parties into the larger party space.
-enclaveToAll :: forall ls a ps m. (KnownSymbols ls) => Subset ls ps -> Choreo ls m (Located ls a) -> Choreo ps m (Located ls a)
+enclaveToAll :: forall ls a ps . (KnownSymbols ls) => Subset ls ps -> Choreo ls (Located ls a) -> Choreo ps (Located ls a)
 
 infix 4 `enclaveToAll`
 
@@ -170,11 +171,11 @@ enclaveToAll present ch = enclaveTo present refl ch
 
 -- | Lift a choreography of involving fewer parties into the larger party space.
 enclave ::
-  forall ls a ps m.
+  forall ls a ps .
   (KnownSymbols ls) =>
   Subset ls ps ->
-  Choreo ls m a ->
-  Choreo ps m (Located ls a)
+  Choreo ls a ->
+  Choreo ps (Located ls a)
 
 infix 4 `enclave`
 

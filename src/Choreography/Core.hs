@@ -24,53 +24,53 @@ where
 
 import Choreography.Locations
 import Choreography.Network hiding (Bind, Return)
+import CLI (CLI)
 import Control.Monad (void)
 import Data.List (delete)
 import GHC.TypeLits
 
 -- | A single value known to many parties.
-newtype Located (ls :: [LocTy]) a = Located { naked :: forall census m. Subset census ls -> Choreo census m a }
+newtype Located (ls :: [LocTy]) a = Located { naked :: forall census. Subset census ls -> Choreo census a }
 
 notMine :: Located ls a
 notMine = Located \_ -> pure undefined
 
-data Choreo (ps :: [LocTy]) m a where
+data Choreo (ps :: [LocTy]) a where
   Locally ::
     (KnownSymbol l) =>
-    m a ->
-    Choreo '[l] m a
+    CLI IO a ->
+    Choreo '[l] a
   Broadcast ::
     (Show a, Read a, KnownSymbol l) =>
     Member l ps -> -- from
     (Member l ls, Located ls a) -> -- value
-    Choreo ps m a
+    Choreo ps a
   EnclaveTo ::
     (KnownSymbols inner) =>
     Subset inner outer ->
     Subset owners inner ->
-    Choreo inner m (Located owners b) ->
-    Choreo outer m (Located owners b)
-  Return :: a -> Choreo ps m a
-  Bind :: Choreo ps m a -> (a -> Choreo ps m b) -> Choreo ps m b
+    Choreo inner (Located owners b) ->
+    Choreo outer (Located owners b)
+  Return :: a -> Choreo ps a
+  Bind :: Choreo ps a -> (a -> Choreo ps b) -> Choreo ps b
 
-instance Functor (Choreo ps m) where
+instance Functor (Choreo ps) where
   fmap f chor = Bind chor (Return . f) 
 
-instance Applicative (Choreo ps m) where
+instance Applicative (Choreo ps) where
   pure = Return
   chorf <*> chora = Bind chorf (\f -> Bind chora (Return . f))
 
-instance Monad (Choreo ps m) where
+instance Monad (Choreo ps) where
   (>>=) = Bind
 
-instance MonadFail (Choreo '[] m) where
+instance MonadFail (Choreo '[]) where
   fail _ = pure undefined -- Should be impossible-ish to call
 
-instance (MonadFail (Choreo ps m),
+instance (MonadFail (Choreo ps),
           KnownSymbol p,
-          KnownSymbols ps,
-          MonadFail m) =>
-          MonadFail (Choreo (p ': ps) m) where
+          KnownSymbols ps) =>
+          MonadFail (Choreo (p ': ps)) where
   fail message = do void . EnclaveTo (First @@ nobody) refl . Locally $ fail message
                     void . EnclaveTo (consSuper refl) refl $ fail message
                     pure undefined
@@ -79,10 +79,10 @@ instance (MonadFail (Choreo ps m),
 -- | Run a `Choreo` monad with centralized semantics.
 --   This basically pretends that the choreography is a single-threaded program and runs it all at once,
 --   ignoring all the location aspects.
-runChoreo :: forall census b m p ps. (Monad m, census ~ p ': ps) => Choreo census m b -> m b
+runChoreo :: forall census b p ps. (census ~ p ': ps) => Choreo census b -> CLI IO b
 runChoreo = handler
   where
-    handler :: (Monad m) => Choreo census m a -> m a
+    handler :: Choreo census a -> CLI IO a
     handler (Locally m) = m
     handler (Broadcast _ (ownership, a)) = runChoreo $ naked a (ownership @@ nobody)
     handler (EnclaveTo (_ :: Subset ls (p ': ps)) _ c) = case tySpine @ls of
@@ -93,19 +93,19 @@ runChoreo = handler
 
 -- | Endpoint projection.
 epp ::
-  forall ps b m.
-  (Monad m, KnownSymbols ps) =>
+  forall ps b.
+  (KnownSymbols ps) =>
   -- | A choreography
-  Choreo ps m b ->
+  Choreo ps b ->
   -- | A `String` identifying a party.
   --   At present there is no enforcement that the party will actually be in the census of the choreography;
   --   some bugs may be possible if it is not.
   LocTm ->
   -- | Returns the implementation of the party's role in the choreography.
-  Network m b
+  Network (CLI IO) b
 epp c l' = handler c
   where
-    handler :: Choreo ps m a -> Network m a
+    handler :: Choreo ps a -> Network (CLI IO) a
     handler (Locally m) = Run $ m
     handler (Broadcast s (l, a)) = do
       let sender = toLocTm s

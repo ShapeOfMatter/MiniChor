@@ -29,7 +29,9 @@ module QuickSort where
 import Choreography
 import Choreography.Network.Local
 import Control.Concurrent.Async (mapConcurrently_)
+import CLI (runCLIIO)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import GHC.TypeLits (KnownSymbol)
 
 reference :: [Int] -> [Int]
@@ -51,7 +53,7 @@ quicksort ::
   Member b ps ->
   Member c ps ->
   Located '[a] [Int] ->
-  Choreo ps IO (Located '[a] [Int])
+  Choreo ps (Located '[a] [Int])
 quicksort a b c lst = do
   isEmpty <- locally1 a (singleton, lst) \l -> pure (null l)
   broadcast (a, isEmpty) >>= \case
@@ -73,17 +75,17 @@ quicksort a b c lst = do
         (refl, bigger'')
         \early fulcrum late -> early ++ [head fulcrum] ++ late
 
-mainChoreo :: Choreo Participants IO ()
+mainChoreo :: Choreo Participants ()
 mainChoreo = do
   lst <- primary `locally` return [1, 6, 5, 3, 4, 2, 7, 8]
   sorted <- quicksort primary worker1 worker2 lst
-  void $ locally1 primary (primary, sorted) print
+  void $ locally1 primary (primary, sorted) (liftIO . print)
   return ()
 
 main :: IO ()
 main = do
   config <- mkLocalConfig locations
-  mapConcurrently_ (runChoreography config mainChoreo) locations
+  mapConcurrently_ (runCLIIO . runChoreography config mainChoreo) locations
   return ()
   where
     locations = ["primary", "worker1", "worker2"]

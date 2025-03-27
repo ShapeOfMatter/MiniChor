@@ -33,6 +33,9 @@ instance Monad (CLI m) where
 instance (MonadIO m) => MonadIO (CLI m) where
   liftIO = Internal . liftIO
 
+instance (MonadFail m) => MonadFail (CLI m) where
+  fail = Internal . fail
+
 runCLIIO :: forall m a. (MonadIO m) => CLI m a -> m a
 runCLIIO = handler
   where

@@ -62,12 +62,12 @@ generateFakePK = do
 -- 1-out-of-2 Oblivious transfer
 --------------------------------------------------
 ot2Insecure ::
-  forall sender receiver m.
-  (KnownSymbol sender, KnownSymbol receiver, MonadIO m) =>
+  forall sender receiver .
+  (KnownSymbol sender, KnownSymbol receiver) =>
   Located '[sender] Bool ->
   Located '[sender] Bool ->
   Located '[receiver] Bool ->
-  Choreo '[sender, receiver] (CLI m) (Located '[receiver] Bool)
+  Choreo '[sender, receiver] (Located '[receiver] Bool)
 ot2Insecure b1 b2 s = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
@@ -99,11 +99,11 @@ decryptS ::
 decryptS (_, _, sk) s (c1, c2) = if s then decryptRSA sk c1 else decryptRSA sk c2
 
 -- One out of two OT
-ot2 :: forall sender receiver m.
-  (KnownSymbol sender, KnownSymbol receiver, MonadIO m, CRT.MonadRandom m) =>
+ot2 :: forall sender receiver .
+  (KnownSymbol sender, KnownSymbol receiver) =>
   Located '[sender] (Bool, Bool) ->
   Located '[receiver] Bool ->
-  Choreo '[sender, receiver] (CLI m) (Located '[receiver] Bool)
+  Choreo '[sender, receiver] (Located '[receiver] Bool)
 ot2 bb s = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
@@ -128,15 +128,15 @@ select4 s1 s2 v1 v2 v3 v4 = case (s1, s2) of
   (False, False) -> v4
 
 ot4Insecure ::
-  forall sender receiver m.
-  (KnownSymbol sender, KnownSymbol receiver, MonadIO m) =>
+  forall sender receiver .
+  (KnownSymbol sender, KnownSymbol receiver) =>
   Located '[sender] Bool -> -- sender
   Located '[sender] Bool -> -- sender
   Located '[sender] Bool -> -- sender
   Located '[sender] Bool -> -- sender
   Located '[receiver] Bool -> -- receiver
   Located '[receiver] Bool -> -- receiver
-  Choreo '[sender, receiver] (CLI m) (Located '[receiver] Bool)
+  Choreo '[sender, receiver] (Located '[receiver] Bool)
 ot4Insecure b1 b2 b3 b4 s1 s2 = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
@@ -197,15 +197,15 @@ dec4 ::
 dec4 (_, _, _, _, sk) s1 s2 (c1, c2, c3, c4) = decryptRSA sk $ select4 s1 s2 c1 c2 c3 c4
 
 -- One out of two OT
-ot4 :: forall sender receiver m.
-  (KnownSymbol sender, KnownSymbol receiver, MonadIO m, CRT.MonadRandom m) =>
+ot4 :: forall sender receiver .
+  (KnownSymbol sender, KnownSymbol receiver) =>
   Located '[sender] Bool ->
   Located '[sender] Bool ->
   Located '[sender] Bool ->
   Located '[sender] Bool ->
   Located '[receiver] Bool ->
   Located '[receiver] Bool ->
-  Choreo '[sender, receiver] (CLI m) (Located '[receiver] Bool)
+  Choreo '[sender, receiver] (Located '[receiver] Bool)
 ot4 b1 b2 b3 b4 s1 s2 = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
@@ -229,7 +229,7 @@ ot4 b1 b2 b3 b4 s1 s2 = do
     locally' $ liftIO $ dec4 keys' s1' s2' encrypted'
 
 -- Test function
-otTest :: (KnownSymbol p1, KnownSymbol p2, MonadIO m, CRT.MonadRandom m) => Choreo '[p1, p2] (CLI m) ()
+otTest :: (KnownSymbol p1, KnownSymbol p2) => Choreo '[p1, p2] ()
 otTest = do
   let p1 = listedFirst :: Member p1 '[p1, p2]
   let p2 = listedSecond :: Member p2 '[p1, p2]

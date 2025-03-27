@@ -4,6 +4,7 @@ module Choreography.Choreography.Batteries where
 import Choreography.Choreography
 import Choreography.Core
 import Choreography.Locations
+import CLI (CLI)
 import Control.Monad (void)
 import GHC.TypeLits
 
@@ -13,8 +14,8 @@ import GHC.TypeLits
 locally_ ::
   (KnownSymbol l) =>
   Member l ps ->
-  m () ->
-  Choreo ps m ()
+  CLI IO () ->
+  Choreo ps ()
 
 infix 4 `locally_`
 
@@ -24,8 +25,8 @@ locally1 ::
   (KnownSymbol l) =>
   Member l census ->
   (Member l owners1, Located owners1 arg1) ->
-  (arg1 -> m b) ->
-  Choreo census m (Located '[l] b)
+  (arg1 -> CLI IO b) ->
+  Choreo census (Located '[l] b)
 locally1 present (owns1, a1) f =
     enclave (present @@ nobody) $ f
         <$> naked a1 (owns1 @@ nobody)
@@ -36,8 +37,8 @@ locally2 ::
   Member l census ->
   (Member l owners1, Located owners1 arg1) ->
   (Member l owners2, Located owners2 arg2) ->
-  (arg1 -> arg2 -> m b) ->
-  Choreo census m (Located '[l] b)
+  (arg1 -> arg2 -> CLI IO b) ->
+  Choreo census (Located '[l] b)
 locally2 present (owns1, a1) (owns2, a2) f =
     enclave (present @@ nobody) $ f
         <$> naked a1 (owns1 @@ nobody)
@@ -50,8 +51,8 @@ locally3 ::
   (Member l owners1, Located owners1 arg1) ->
   (Member l owners2, Located owners2 arg2) ->
   (Member l owners3, Located owners3 arg3) ->
-  (arg1 -> arg2 -> arg3 -> m b) ->
-  Choreo census m (Located '[l] b)
+  (arg1 -> arg2 -> arg3 -> CLI IO b) ->
+  Choreo census (Located '[l] b)
 locally3 present (owns1, a1) (owns2, a2) (owns3, a3) f =
     enclave (present @@ nobody) $ f
         <$> naked a1 (owns1 @@ nobody)
@@ -63,13 +64,13 @@ locally3 present (owns1, a1) (owns2, a2) (owns3, a3) f =
 
 -- | A variant of `~>` that sends the result of a local computation.
 (~~>) ::
-  forall a l ls' m ps.
+  forall a l ls' ps.
   (Show a, Read a, KnownSymbol l, KnownSymbols ls') =>
   -- | A pair of a sender's location and a local computation.
-  (Member l ps, m a) ->
+  (Member l ps, CLI IO a) ->
   -- | A receiver's location.
   Subset ls' ps ->
-  Choreo ps m (Located ls' a)
+  Choreo ps (Located ls' a)
 
 infix 4 ~~>
 
@@ -79,13 +80,13 @@ infix 4 ~~>
 
 -- | A variant of `~>` that sends the result of a local action that doesn't use existing `Located` variables.
 (-~>) ::
-  forall a l ls' m ps.
+  forall a l ls' ps.
   (Show a, Read a, KnownSymbol l, KnownSymbols ls') =>
   -- | A pair of a sender's location and a local computation.
-  (Member l ps, m a) ->
+  (Member l ps, CLI IO a) ->
   -- | A receiver's location.
   Subset ls' ps ->
-  Choreo ps m (Located ls' a)
+  Choreo ps (Located ls' a)
 
 infix 4 -~>
 
@@ -102,6 +103,6 @@ cond ::
   -- and are present, the branch guard
   (Subset ls ps, (Subset ls qs, Located qs a)) ->
   -- | The body of the conditional as a function from the unwrapped value.
-  (a -> Choreo ls m b) ->
-  Choreo ps m (Located ls b)
+  (a -> Choreo ls b) ->
+  Choreo ps (Located ls b)
 cond (ls, (owns, a)) c = enclave ls $ naked a owns >>= c

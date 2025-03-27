@@ -40,7 +40,6 @@ import CLI
 import Choreography
 import Choreography.Network.Http
 import Control.Monad (void)
-import Control.Monad.IO.Class (MonadIO)
 import System.Environment
 import System.Random
 
@@ -62,8 +61,7 @@ $(mkLoc "bob")
 type Participants = ["alice", "bob"]
 
 diffieHellman ::
-  (MonadIO m) =>
-  Choreo Participants (CLI m) ()
+  Choreo Participants ()
 diffieHellman = do
   -- wait for alice to initiate the process
   _ <- alice `locally` getstr "enter to start key exchange..."

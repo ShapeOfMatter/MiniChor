@@ -20,7 +20,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.State
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
-
+{-
 -- an edge of the ring is represented as a tuple of two locaitons l and l' where
 -- l is on the left of l'
 data Edge g
@@ -33,10 +33,10 @@ type Ring g = [Edge g]
 
 type Label = Int
 
-ringLeader :: forall g. (KnownSymbols g) => Ring g -> Choreo g (StateT Label IO) () -- g for graph
+ringLeader :: forall g. (KnownSymbols g) => Ring g -> Choreo g () -- g for graph
 ringLeader r = loop r
   where
-    loop :: Ring g -> Choreo g (StateT Label IO) ()
+    loop :: Ring g -> Choreo g ()
     loop [] = loop r -- not very safe!
     loop (x : xs) = do
       finished <- talkToRight x
@@ -44,7 +44,7 @@ ringLeader r = loop r
         then return ()
         else loop xs
 
-    talkToRight :: Edge g -> Choreo g (StateT Label IO) Bool
+    talkToRight :: Edge g -> Choreo g Bool
     talkToRight (Edge left right) = do
       ll <- left `locally` get
       labelLeft <- (left, ll) ~> right @@ nobody
@@ -94,3 +94,4 @@ main = do
           ("nodeC", ("localhost", 4444)),
           ("nodeD", ("localhost", 4545))
         ]
+        -}

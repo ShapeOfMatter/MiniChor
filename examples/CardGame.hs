@@ -53,7 +53,7 @@ instance Arbitrary Args where
 {- A simple black-jack-style game. The dealer gives everyone a card, face up. Each player may
  - request a second card. Then the dealer reveals one more card that applies to everyone. Each
  - player individually wins if the sum of their cards (modulo 21) is greater than 19.  -}
-game :: forall players m. (KnownSymbols players) => Choreo ("dealer" ': players) (CLI m) ()
+game :: forall players . (KnownSymbols players) => Choreo ("dealer" ': players) ()
 game = do
   let players = consSuper (refl @players)
       dealer = listedFirst @"dealer" -- listedFirst is just First with the type-arguments rearranged.

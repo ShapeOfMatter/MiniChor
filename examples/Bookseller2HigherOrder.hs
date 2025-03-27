@@ -69,8 +69,8 @@ type Participants = ["buyer", "seller", "buyer2"]
 -- | `bookseller` is a choreography that implements the bookseller protocol.
 -- This version takes a choreography `mkDecision` that implements the decision making process.
 bookseller ::
-  (Located '["buyer"] Int -> Choreo Participants (CLI m) (Located '["buyer"] Bool)) ->
-  Choreo Participants (CLI m) ()
+  (Located '["buyer"] Int -> Choreo Participants (Located '["buyer"] Bool)) ->
+  Choreo Participants ()
 bookseller mkDecision = do
   database <- seller `locally` getInput "Enter the book database (for `Read`):"
   title <- (buyer, getstr "Enter the title of the book to buy:") -~> seller @@ nobody
@@ -92,14 +92,14 @@ bookseller mkDecision = do
       buyer `locally_` putNote "The book's price is out of the budget"
 
 -- | `mkDecision1` checks if buyer's budget is greater than the price of the book
-mkDecision1 :: Located '["buyer"] Int -> Choreo Participants (CLI m) (Located '["buyer"] Bool)
+mkDecision1 :: Located '["buyer"] Int -> Choreo Participants (Located '["buyer"] Bool)
 mkDecision1 price = do
   budget <- buyer `locally` getInput "What are you willing to pay?"
   locally2 buyer (buyer, price) (buyer, budget) (\p b -> return $ p <= b)
 
 -- | `mkDecision2` asks buyer2 how much they're willing to contribute and checks
 -- if the buyer's budget is greater than the price of the book minus buyer2's contribution
-mkDecision2 :: Located '["buyer"] Int -> Choreo Participants (CLI m) (Located '["buyer"] Bool)
+mkDecision2 :: Located '["buyer"] Int -> Choreo Participants (Located '["buyer"] Bool)
 mkDecision2 price = do
   contrib1 <- buyer `locally` getInput "What are you willing to pay?"
   contrib2 <- (buyer2, getInput "How much you're willing to contribute?") -~> buyer @@ nobody

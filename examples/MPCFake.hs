@@ -8,7 +8,7 @@ module MPCFake where
 import CLI
 import Choreography
 import Control.Monad (void)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Data (TestArgs, reference)
 import Data.Kind (Type)
 import Data.Maybe (fromJust)
@@ -73,12 +73,12 @@ instance TestArgs Args (Bool, Bool, Bool, Bool) where
       answer = recurse circuit
 
 secretShare ::
-  forall p parties owners ps m.
-  (KnownSymbols parties, KnownSymbol p, MonadIO m) =>
+  forall p parties owners ps .
+  (KnownSymbols parties, KnownSymbol p) =>
   Subset parties ps ->
   Member p ps ->
   (Member p owners, Located owners Bool) ->
-  Choreo ps m (Faceted parties '[] Bool)
+  Choreo ps (Faceted parties '[] Bool)
 secretShare parties p (ownership, value) = do
   shares <- locally1 p (ownership, value) genShares
   PIndexed fs <- scatter p parties shares
@@ -88,16 +88,16 @@ secretShare parties p (ownership, value) = do
       TyCons -> gs'
       TyNil -> error "Can't secret-share to zero people."
       where
-        gs' :: forall q qs. (KnownSymbol q, KnownSymbols qs) => m (Quire (q ': qs) Bool)
+        gs' :: forall q qs. (KnownSymbol q, KnownSymbols qs) => CLI IO (Quire (q ': qs) Bool)
         gs' = do
           freeShares <- sequence $ pure $ liftIO randomIO -- generate n-1 random shares
           return $ xor (qCons @q x freeShares) `qCons` freeShares
 
 reveal ::
-  forall ps m.
+  forall ps .
   (KnownSymbols ps) =>
   Faceted ps '[] Bool ->
-  Choreo ps m Bool
+  Choreo ps Bool
 reveal shares = do
   let ps = allOf @ps
   allShares <- gather ps ps shares
@@ -105,11 +105,11 @@ reveal shares = do
   naked value ps
 
 computeWire ::
-  (KnownSymbols ps, KnownSymbols parties, KnownSymbol trustedAnd, MonadIO m) =>
+  (KnownSymbols ps, KnownSymbols parties, KnownSymbol trustedAnd) =>
   Member trustedAnd ps ->
   Subset parties ps ->
   Circuit parties ->
-  Choreo ps (CLI m) (Faceted parties '[] Bool)
+  Choreo ps (Faceted parties '[] Bool)
 computeWire trustedAnd parties circuit = case circuit of
   InputWire p -> do
     value <- inSuper parties p `locally` getInput "Enter a secret input value:"
@@ -137,9 +137,9 @@ computeWire trustedAnd parties circuit = case circuit of
     partyNames = toLocs parties
 
 mpc ::
-  (KnownSymbols parties, MonadIO m) =>
+  (KnownSymbols parties) =>
   Circuit parties ->
-  Choreo ("trusted3rdParty" ': parties) (CLI m) ()
+  Choreo ("trusted3rdParty" ': parties) ()
 mpc circuit = do
   let parties = consSuper refl
   outputWire <- computeWire trusted3rdParty parties circuit

@@ -30,7 +30,7 @@ chooseTeams (a : as) =
    in (t2, a : t1)
 
 -- the game is just red-team sending numbers to blue team.
-game :: forall players m. (KnownSymbols players) => Choreo players (CLI m) ()
+game :: forall players . (KnownSymbols players) => Choreo players ()
 game = do
   let players = allOf @players
   let (red, blue) = chooseTeams $ toLocs players

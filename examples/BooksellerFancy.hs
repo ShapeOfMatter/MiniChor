@@ -22,10 +22,10 @@ $(mkLoc "seller")
 -- | `bookseller` is a choreography that implements the bookseller protocol.
 -- This version takes a choreography `mkDecision` that implements the decision making process.
 bookseller ::
-  forall supporters {m}.
+  forall supporters .
   (KnownSymbols supporters) =>
-  (Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)) ->
-  Choreo ("buyer" ': "seller" ': supporters) (CLI m) ()
+  (Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (Located '["buyer"] Bool)) ->
+  Choreo ("buyer" ': "seller" ': supporters) ()
 bookseller mkDecision = do
   database <- seller `locally` getInput "Enter the book database (for `Read`):"
   title <- (buyer, getstr "Enter the title of the book to buy:") -~> seller @@ nobody
@@ -58,14 +58,14 @@ bookseller mkDecision = do
     buyerAndSeller = explicitSubset
 
 -- | `mkDecision1` checks if buyer's budget is greater than the price of the book
-mkDecision1 :: Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)
+mkDecision1 :: Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (Located '["buyer"] Bool)
 mkDecision1 price = do
   budget <- buyer `locally` getInput "What are you willing to pay?"
   locally2 buyer (buyer, price) (buyer, budget) \p b -> return $ p <= b
 
 -- | `mkDecision2` asks supporters how much they're willing to contribute and checks
 -- if the buyer's budget is greater than the price of the book minus all supporters' contribution
-mkDecision2 :: forall supporters {m}. (KnownSymbols supporters) => Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (CLI m) (Located '["buyer"] Bool)
+mkDecision2 :: forall supporters . (KnownSymbols supporters) => Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (Located '["buyer"] Bool)
 mkDecision2 price = do
   budget <- buyer `locally` getInput "What are you willing to pay?"
 

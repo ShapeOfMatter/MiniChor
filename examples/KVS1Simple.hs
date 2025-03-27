@@ -31,7 +31,9 @@ module KVS1Simple where
 
 import Choreography
 import Choreography.Network.Http
+import CLI (CLI, runCLIIO)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -49,13 +51,13 @@ data Request = Put String String | Get String deriving (Show, Read)
 type Response = Maybe String
 
 -- | `readRequest` reads a request from the terminal.
-readRequest :: IO Request
+readRequest :: CLI IO Request
 readRequest = do
-  putStrLn "Command?"
-  line <- getLine
+  liftIO $ putStrLn "Command?"
+  line <- liftIO getLine
   case parseRequest line of
     Just t -> return t
-    Nothing -> putStrLn "Invalid command" >> readRequest
+    Nothing -> liftIO (putStrLn "Invalid command") >> readRequest
   where
     parseRequest :: String -> Maybe Request
     parseRequest s =
@@ -66,20 +68,20 @@ readRequest = do
             _ -> Nothing
 
 -- | `handleRequest` handle a request and returns the new the state.
-handleRequest :: Request -> IORef State -> IO Response
+handleRequest :: Request -> IORef State -> CLI IO Response
 handleRequest request stateRef = case request of
   Put key value -> do
-    modifyIORef stateRef (Map.insert key value)
+    liftIO $ modifyIORef stateRef (Map.insert key value)
     return (Just value)
   Get key -> do
-    state <- readIORef stateRef
+    state <- liftIO $ readIORef stateRef
     return (Map.lookup key state)
 
 -- | `kvs` is a choreography that processes a single request located at the client and returns the response.
 kvs ::
   Located '["client"] Request ->
   Located '["server"] (IORef State) ->
-  Choreo Participants IO (Located '["client"] Response)
+  Choreo Participants (Located '["client"] Response)
 kvs request stateRef = do
   -- send the request to the server
   request' <- (client, request) ~> server @@ nobody
@@ -91,24 +93,24 @@ kvs request stateRef = do
 -- | `mainChoreo` is a choreography that serves as the entry point of the program.
 -- It initializes the state and loops forever.
 -- HIII :> (*>_*)
-mainChoreo :: Choreo Participants IO ()
+mainChoreo :: Choreo Participants ()
 mainChoreo = do
-  stateRef <- server `locally` newIORef (Map.empty :: State)
+  stateRef <- server `locally` (liftIO $ newIORef (Map.empty :: State))
   loop stateRef
   where
-    loop :: Located '["server"] (IORef State) -> Choreo Participants IO ()
+    loop :: Located '["server"] (IORef State) -> Choreo Participants ()
     loop stateRef = do
       request <- client `locally` readRequest
       response <- kvs request stateRef
-      void $ locally1 client (client, response) (putStrLn . ("> " ++) . show)
+      void $ locally1 client (client, response) (liftIO . putStrLn . ("> " ++) . show)
       loop stateRef
 
 main :: IO ()
 main = do
   [loc] <- getArgs
   case loc of
-    "client" -> runChoreography config mainChoreo "client"
-    "server" -> runChoreography config mainChoreo "server"
+    "client" -> runCLIIO $ runChoreography config mainChoreo "client"
+    "server" -> runCLIIO $ runChoreography config mainChoreo "server"
     _ -> error "unknown party"
   return ()
   where

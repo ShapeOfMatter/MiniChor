@@ -4,6 +4,7 @@ module Choreography.Polymorphism where
 import Choreography.Choreography
 import Choreography.Core
 import Choreography.Locations
+import CLI (CLI)
 import Control.Monad (void)
 import Data.Foldable (toList)
 import Data.Functor.Compose (Compose (Compose, getCompose))
@@ -121,7 +122,7 @@ localize :: (KnownSymbol l) => Member l ls -> Faceted ls common a -> Located (l 
 localize l (PIndexed f) = getFacet $ f l
 
 -- | In a context where unwrapping located values is possible, get the respective value stored in a `Faceted`.
-viewFacet :: (KnownSymbol l, KnownSymbols qs) => Member l ls -> Subset qs (l ': common) -> Faceted ls common a -> Choreo qs m a
+viewFacet :: (KnownSymbol l, KnownSymbols qs) => Member l ls -> Subset qs (l ': common) -> Faceted ls common a -> Choreo qs a
 viewFacet l qs f = naked (localize l f) qs
 
 {-
@@ -136,43 +137,43 @@ unsafeFacet [] _ = error "The provided list isn't long enough to use as a Facete
 
 -- | Perform a local computation at all of a list of parties, yielding a `Faceted`.
 parallel ::
-  forall ls a ps m.
+  forall ls a ps .
   (KnownSymbols ls) =>
   -- | The parties who will do the computation must be present in the census.
   Subset ls ps ->
   -- | The local computation.
-  m a ->
-  Choreo ps m (Faceted ls '[] a)
+  CLI IO a ->
+  Choreo ps (Faceted ls '[] a)
 parallel ls m = parallel0 ls $ const m
 
 -- | Perform a local computation, that doesn't use any existing `Located` values and doesn't depend on the respective party's identity,
 --   at all of a list of parties, yielding a `Faceted`.
 parallel_ ::
-  forall ls ps m.
+  forall ls ps .
   (KnownSymbols ls) =>
   Subset ls ps ->
-  m () ->
-  Choreo ps m ()
+  CLI IO () ->
+  Choreo ps ()
 parallel_ ls m = void $ parallel ls m
 
 -- | Perform a local computation at all of a list of parties, yielding a `Faceted`.
 parallel0 ::
-  forall ls a ps m.
+  forall ls a ps .
   (KnownSymbols ls) =>
   -- | The parties who will do the computation must be present in the census.
   Subset ls ps ->
   -- | The local computation has access to the identity of the party in question.
-  (forall l. (KnownSymbol l) => Member l ls -> m a) -> -- Could promote this to PIndexed too, but ergonomics might be worse?
-  Choreo ps m (Faceted ls '[] a)
+  (forall l. (KnownSymbol l) => Member l ls -> CLI IO a) -> -- Could promote this to PIndexed too, but ergonomics might be worse?
+  Choreo ps (Faceted ls '[] a)
 parallel0 ls m = fanOut \mls -> locally (inSuper ls mls) (m mls)
 
 -- | Perform a local computation at all of a list of parties, yielding nothing.
 parallel0_ ::
-  forall ls ps m.
+  forall ls ps .
   (KnownSymbols ls) =>
   Subset ls ps ->
-  (forall l. (KnownSymbol l) => Member l ls -> m ()) ->
-  Choreo ps m ()
+  (forall l. (KnownSymbol l) => Member l ls -> CLI IO ()) ->
+  Choreo ps ()
 parallel0_ ls m = void $ parallel0 ls m
 
 
@@ -180,8 +181,8 @@ parallel0_ ls m = void $ parallel0 ls m
 fanOut ::
   (KnownSymbols qs) =>
   -- | The body.  -- kinda sketchy that rs might not be a subset of ps...
-  (forall q. (KnownSymbol q) => Member q qs -> Choreo ps m (Located (q ': rs) a)) ->
-  Choreo ps m (Faceted qs rs a)
+  (forall q. (KnownSymbol q) => Member q qs -> Choreo ps (Located (q ': rs) a)) ->
+  Choreo ps (Faceted qs rs a)
 fanOut body = sequenceP (PIndexed $ Compose . (Facet <$>) <$> body)
 
 -- | Perform a given choreography for each of several parties; the return values are known to recipients but not necessarily to the loop-parties.
@@ -190,8 +191,8 @@ fanIn ::
   -- | The recipients.
   Subset rs ps ->
   -- | The body.
-  (forall q. (KnownSymbol q) => Member q qs -> Choreo ps m (Located rs a)) ->
-  Choreo ps m (Located rs (Quire qs a))
+  (forall q. (KnownSymbol q) => Member q qs -> Choreo ps (Located rs a)) ->
+  Choreo ps (Located rs (Quire qs a))
 fanIn rs body = do
   x <- Quire <$> sequenceP (PIndexed $ Compose . (Const <$>) <$> body)
   enclave rs $ traverse (\l -> naked l refl) x
@@ -200,12 +201,12 @@ fanIn rs body = do
 -- | The owner of a t`Quire` sends its elements to their respective parties, resulting in a `Faceted`.
 --   This represents the "scatter" idea common in parallel computing contexts.
 scatter ::
-  forall census sender recipients a m.
+  forall census sender recipients a .
   (KnownSymbol sender, KnownSymbols recipients, Show a, Read a) =>
   Member sender census ->
   Subset recipients census ->
   Located '[sender] (Quire recipients a) ->
-  Choreo census m (Faceted recipients '[sender] a)
+  Choreo census (Faceted recipients '[sender] a)
 scatter sender recipients values = fanOut \r -> do
   message <- congruently1 (sender @@ nobody) (refl, values) (`getLeaf` r)
   (sender, message) ~> inSuper recipients r @@ sender @@ nobody
@@ -213,11 +214,11 @@ scatter sender recipients values = fanOut \r -> do
 -- | The many owners of a `Faceted` each send their respective values to a constant list of recipients, resulting in a t`Quire`.
 --   This represents the "gather" idea common in parallel computing contexts.
 gather ::
-  forall census recipients senders a dontcare m.
+  forall census recipients senders a dontcare .
   (KnownSymbols senders, KnownSymbols recipients, Show a, Read a) =>
   Subset senders census ->
   Subset recipients census ->
   Faceted senders dontcare a ->
-  Choreo census m (Located recipients (Quire senders a)) -- could be Faceted senders recipients instead...
+  Choreo census (Located recipients (Quire senders a)) -- could be Faceted senders recipients instead...
 gather senders recipients (PIndexed values) = fanIn recipients \s ->
   (inSuper senders s, getFacet $ values s) ~> recipients

@@ -41,7 +41,7 @@ newIORef = liftIO <$> IORef.newIORef
 -- $(mkLoc "backup2")
 -- type Participants = ["client", "primary", "backup1", "backup2"]
 
-kvs :: (KnownSymbol client) => ReplicationStrategy ps (CLI m) -> Member client ps -> Choreo ps (CLI m) ()
+kvs :: (KnownSymbol client) => ReplicationStrategy ps -> Member client ps -> Choreo ps ()
 kvs ReplicationStrategy {setup, primary, handle} client = do
   rigging <- setup
   let go = do
@@ -55,10 +55,10 @@ kvs ReplicationStrategy {setup, primary, handle} client = do
   go
 
 naryReplicationStrategy ::
-  (KnownSymbol primary, KnownSymbols backups, KnownSymbols ps, MonadIO m) =>
+  (KnownSymbol primary, KnownSymbols backups, KnownSymbols ps) =>
   Member primary ps ->
   Subset backups ps ->
-  ReplicationStrategy ps m
+  ReplicationStrategy ps
 naryReplicationStrategy primary backups =
   ReplicationStrategy
     { primary,
@@ -82,18 +82,18 @@ naryReplicationStrategy primary backups =
   where
     servers = primary @@ backups
 
-data ReplicationStrategy ps m
+data ReplicationStrategy ps
   = forall primary rigging.
   (KnownSymbol primary) =>
   ReplicationStrategy
   { primary :: Member primary ps,
-    setup :: Choreo ps m rigging,
+    setup :: Choreo ps rigging,
     handle ::
       forall starts.
       rigging ->
       Member primary starts ->
       Located starts Request ->
-      Choreo ps m Response
+      Choreo ps Response
   }
 
 data Request = Put String String | Get String | Stop deriving (Eq, Ord, Read, Show)
@@ -137,9 +137,9 @@ readRequest = do
 
 -- | `nullReplicationStrategy` is a replication strategy that does not replicate the state.
 nullReplicationStrategy ::
-  (KnownSymbol primary, KnownSymbols ps, MonadIO m) =>
+  (KnownSymbol primary, KnownSymbols ps) =>
   Member primary ps ->
-  ReplicationStrategy ps m
+  ReplicationStrategy ps
 nullReplicationStrategy primary =
   ReplicationStrategy
     { primary,
@@ -150,10 +150,10 @@ nullReplicationStrategy primary =
     }
 
 naryHumans ::
-  (KnownSymbol primary, KnownSymbols backups, KnownSymbols ps, MonadIO m) =>
+  (KnownSymbol primary, KnownSymbols backups, KnownSymbols ps) =>
   Member primary ps ->
   Subset backups ps ->
-  ReplicationStrategy ps (CLI m)
+  ReplicationStrategy ps
 naryHumans primary backups =
   ReplicationStrategy
     { primary,

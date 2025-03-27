@@ -65,18 +65,17 @@ instance Arbitrary Args where
 
 -- | Federated Lottery example from DPrio https://www.semanticscholar.org/paper/DPrio%3A-Efficient-Differential-Privacy-with-High-for-Keeler-Komlo/ae1b2a4e5beaaa850183ad37e0880bb70ae34f4e
 lottery ::
-  forall clients servers analyst census m _serv1 _serv2 _servTail _client1 _client2 _clientTail.
+  forall clients servers analyst census _serv1 _serv2 _servTail _client1 _client2 _clientTail.
   ( KnownSymbols clients,
     KnownSymbols servers,
     KnownSymbol analyst,
-    MonadIO m,
     (_serv1 ': _serv2 ': _servTail) ~ servers, -- There must be at least be two servers
     (_client1 ': _client2 ': _clientTail) ~ clients -- There must be at least be two clients
   ) =>
   Subset clients census ->
   Subset servers census ->
   Member analyst census ->
-  Choreo census (CLI m) ()
+  Choreo census ()
 lottery clients servers analyst = do
   secret <- parallel clients (getInput @Fp "secret:")
   clientShares <- fanOut \client -> enclave (inSuper clients client @@ nobody) (

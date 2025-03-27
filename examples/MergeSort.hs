@@ -30,7 +30,9 @@ module MergeSort where
 
 import Choreography
 import Choreography.Network.Http
+import CLI (runCLIIO)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
 
@@ -55,7 +57,7 @@ sort ::
   Member b ps ->
   Member c ps ->
   Located '[a] [Int] ->
-  Choreo ps IO (Located '[a] [Int])
+  Choreo ps (Located '[a] [Int])
 sort a b c lst = do
   condition <- congruently1 (a @@ nobody) (refl, lst) ((> 1) . length)
   broadcast (a, condition) >>= \case
@@ -83,7 +85,7 @@ merge ::
   Member c ps ->
   Located '[b] [Int] ->
   Located '[c] [Int] ->
-  Choreo ps IO (Located '[a] [Int])
+  Choreo ps (Located '[a] [Int])
 merge a b c lhs rhs = do
   lhsHasElements <- congruently1 (b @@ nobody) (refl, lhs) (not . null)
   broadcast (b, lhsHasElements) >>= \case
@@ -114,20 +116,20 @@ merge a b c lhs rhs = do
     False -> do
       (c, rhs) ~> a @@ nobody
 
-mainChoreo :: Choreo Participants IO ()
+mainChoreo :: Choreo Participants ()
 mainChoreo = do
   lst <- primary `locally` return [1, 6, 5, 3, 4, 2, 7, 8]
   sorted <- sort primary worker1 worker2 lst
-  void $ locally1 primary (primary, sorted) print
+  void $ locally1 primary (primary, sorted) (liftIO . print)
   return ()
 
 main :: IO ()
 main = do
   [loc] <- getArgs
   case loc of
-    "primary" -> runChoreography config mainChoreo "primary"
-    "worker1" -> runChoreography config mainChoreo "worker1"
-    "worker2" -> runChoreography config mainChoreo "worker2"
+    "primary" -> runCLIIO $ runChoreography config mainChoreo "primary"
+    "worker1" -> runCLIIO $ runChoreography config mainChoreo "worker1"
+    "worker2" -> runCLIIO $ runChoreography config mainChoreo "worker2"
     _ -> error "unknown worker"
   return ()
   where

@@ -21,8 +21,8 @@ import Choreography.Locations
 import Choreography.Locations.Batteries
 import Choreography.Network hiding (Bind, Return)
 import Choreography.Polymorphism
-import Control.Monad.IO.Class (MonadIO)
+import CLI (CLI)
 
 -- | Run a choreography with a message transport backend...
-runChoreography :: (Backend config, MonadIO m, KnownSymbols ps) => config -> Choreo ps m a -> LocTm -> m a
+runChoreography :: (Backend config, KnownSymbols ps) => config -> Choreo ps a -> LocTm -> CLI IO a
 runChoreography cfg choreo l = runNetwork cfg l (epp choreo l)

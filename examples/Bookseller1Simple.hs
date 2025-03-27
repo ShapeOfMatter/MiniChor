@@ -18,7 +18,7 @@ $(mkLoc "seller")
 type Participants = ["buyer", "seller"]
 
 -- | `bookseller` is a choreography that implements the bookseller protocol.
-bookseller :: Choreo Participants (CLI m) ()
+bookseller :: Choreo Participants ()
 bookseller = do
   database <- seller `locally` getInput "Enter the book database (for `Read`):"
   buyer_budget <- buyer `locally` getInput "Enter your total budget:"

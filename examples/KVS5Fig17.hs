@@ -76,7 +76,7 @@ handleRequest handler request = case request of
   Put key value -> show key ++ " saved as " ++ show value ++ "."
   Get key -> handler key
 
-setup :: Choreo Servers (CLI m) (Located Servers (Request -> Response))
+setup :: Choreo Servers (Located Servers (Request -> Response))
 setup = do
   handlerName <-
     (primary, getstr "How should we mock `Get` Requests? (reverse or alphabetize)")
@@ -88,7 +88,7 @@ setup = do
 
 -- | `kvs` is a choreography that processes a single request located at the client and returns the response.
 -- If the request is a `PUT`, it will forward the request to the backup node.
-kvs :: Choreo Participants (CLI m) ()
+kvs :: Choreo Participants ()
 kvs = do
   handler <- enclaveToAll servers setup
   request <- (client, getInput "Enter the `read`able Request:") -~> primary @@ backup @@ nobody
