@@ -97,7 +97,8 @@ secretShare p value = do
   fanOut (\q -> othersForget (q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
 
 reveal :: forall ps m. (KnownSymbols ps) => Faceted ps '[] Bool -> Choreo ps m Bool
-reveal shares = xor <$> (gather ps ps shares >>= naked ps)
+reveal shares = xor <$> (do ss <- gather ps ps shares
+                            naked ss ps)
   where
     ps = allOf @ps
 

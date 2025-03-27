@@ -122,7 +122,7 @@ localize l (PIndexed f) = getFacet $ f l
 
 -- | In a context where unwrapping located values is possible, get the respective value stored in a `Faceted`.
 viewFacet :: (KnownSymbol l, KnownSymbols qs) => Member l ls -> Subset qs (l ': common) -> Faceted ls common a -> Choreo qs m a
-viewFacet l qs f = naked qs (localize l f)
+viewFacet l qs f = naked (localize l f) qs
 
 {-
 unsafeFacet :: [Maybe a] -> Member l ls -> Facet a common l -- providing this as a helper function is pretty sketchy, if we don't need it delete it.
@@ -194,7 +194,7 @@ fanIn ::
   Choreo ps m (Located rs (Quire qs a))
 fanIn rs body = do
   x <- Quire <$> sequenceP (PIndexed $ Compose . (Const <$>) <$> body)
-  enclave rs $ traverse (naked refl) x
+  enclave rs $ traverse (\l -> naked l refl) x
   --congruently1 rs \un -> stackLeaves $ \q -> un refl (getConst $ x q)
 
 -- | The owner of a t`Quire` sends its elements to their respective parties, resulting in a `Faceted`.

@@ -28,7 +28,7 @@ locally1 ::
   Choreo census m (Located '[l] b)
 locally1 present (owns1, a1) f =
     enclave (present @@ nobody) $ f
-        <$> naked (owns1 @@ nobody) a1
+        <$> naked a1 (owns1 @@ nobody)
         >>= locally'
 
 locally2 ::
@@ -40,8 +40,8 @@ locally2 ::
   Choreo census m (Located '[l] b)
 locally2 present (owns1, a1) (owns2, a2) f =
     enclave (present @@ nobody) $ f
-        <$> naked (owns1 @@ nobody) a1
-        <*> naked (owns2 @@ nobody) a2
+        <$> naked a1 (owns1 @@ nobody)
+        <*> naked a2 (owns2 @@ nobody)
         >>= locally'
 
 locally3 ::
@@ -54,9 +54,9 @@ locally3 ::
   Choreo census m (Located '[l] b)
 locally3 present (owns1, a1) (owns2, a2) (owns3, a3) f =
     enclave (present @@ nobody) $ f
-        <$> naked (owns1 @@ nobody) a1
-        <*> naked (owns2 @@ nobody) a2
-        <*> naked (owns3 @@ nobody) a3
+        <$> naked a1 (owns1 @@ nobody)
+        <*> naked a2 (owns2 @@ nobody)
+        <*> naked a3 (owns3 @@ nobody)
         >>= locally'
 
 -- * Communication
@@ -104,4 +104,4 @@ cond ::
   -- | The body of the conditional as a function from the unwrapped value.
   (a -> Choreo ls m b) ->
   Choreo ps m (Located ls b)
-cond (ls, (owns, a)) c = enclave ls $ naked owns a >>= c
+cond (ls, (owns, a)) c = enclave ls $ naked a owns >>= c

@@ -41,7 +41,7 @@ game = do
   void $ fanOut \p -> enclave ((players `inSuper` p) @@ nobody)
     if (toLocTm p `elem` blue)
       then do
-        n <- naked (p @@ nobody) numbers
+        n <- naked numbers (p @@ nobody)
         locally' $ putOutput "Numbers recieved:" $ catMaybes . toList $ n
       else 
         return ()

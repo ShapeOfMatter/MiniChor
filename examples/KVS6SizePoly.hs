@@ -67,7 +67,7 @@ naryReplicationStrategy primary backups =
         request' <- (primary, (pHas, request)) ~> servers
         localResponse <- fanOut \server -> enclave (inSuper servers server @@ nobody) do
           strf <- viewFacet server (First @@ nobody) stateRef
-          r' <- naked (server @@ nobody) request'
+          r' <- naked request' (server @@ nobody)
           locally' $ handleRequest strf r'
         responses <- gather servers (primary @@ nobody) localResponse
         response <- congruently1
@@ -160,7 +160,7 @@ naryHumans primary backups =
       setup = primary `locally` newIORef (Map.empty :: State),
       handle = \stateRef pHas request -> do
         request' <- (primary, (pHas, request)) ~> backups
-        backupResponse <- fanOut \server -> enclave (inSuper backups server @@ nobody) (naked (server @@ nobody) request' >>= locally' . readResponse)
+        backupResponse <- fanOut \server -> enclave (inSuper backups server @@ nobody) (naked request' (server @@ nobody) >>= locally' . readResponse)
         localResponse <- locally2 primary (singleton, stateRef) (pHas, request) handleRequest
         responses <- gather backups (primary @@ nobody) backupResponse
         response <- congruently2
@@ -170,7 +170,8 @@ naryHumans primary backups =
                       (\lr rs -> case nub $ lr : toList rs of
                         [r] -> r
                         rs' -> Desynchronization rs')
-        ((primary, response) ~> refl) >>= naked refl
+        response' <- (primary, response) ~> refl
+        naked response' refl
     }
   where
     readResponse :: Request -> CLI m Response

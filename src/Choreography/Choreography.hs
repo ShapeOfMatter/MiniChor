@@ -40,7 +40,7 @@ congruently1 ::
   (Subset ls owners1, Located owners1 arg1) ->
   (arg1 -> a) ->
   Choreo census m (Located ls a)
-congruently1 present (owns1, arg1) f = enclave present $ f <$> naked owns1 arg1
+congruently1 present (owns1, arg1) f = enclave present $ f <$> naked arg1 owns1
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
@@ -52,7 +52,7 @@ congruently2 ::
   (Subset ls owners2, Located owners2 arg2) ->
   (arg1 -> arg2 -> a) ->
   Choreo census m (Located ls a)
-congruently2 present (owns1, arg1) (owns2, arg2) f = enclave present $ f <$> naked owns1 arg1 <*> naked owns2 arg2
+congruently2 present (owns1, arg1) (owns2, arg2) f = enclave present $ f <$> naked arg1 owns1 <*> naked arg2 owns2
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
@@ -65,15 +65,8 @@ congruently3 ::
   (Subset ls owners3, Located owners3 arg3) ->
   (arg1 -> arg2 -> arg3 -> a) ->
   Choreo census m (Located ls a)
-congruently3 present (owns1, arg1) (owns2, arg2) (owns3, arg3) f = enclave present $ f <$> naked owns1 arg1 <*> naked owns2 arg2 <*> naked owns3 arg3
+congruently3 present (owns1, arg1) (owns2, arg2) (owns3, arg3) f = enclave present $ f <$> naked arg1 owns1 <*> naked arg2 owns2 <*> naked arg3 owns3
 
--- | Unwrap a value known to the entire census.
-naked ::
-  (KnownSymbols ps) =>
-  Subset ps qs ->
-  Located qs a ->
-  Choreo ps m a
-naked = Naked
 
 -- | Un-nest located values.
 flatten :: (KnownSymbols ls)
@@ -83,7 +76,8 @@ flatten :: (KnownSymbols ls)
         -> Located ms (Located ns a)
         -> Choreo census m (Located ls a)
 flatten present ownsOuter ownsInner nested =
-    enclave present $ naked ownsOuter nested >>= naked ownsInner
+    enclave present do l <- naked nested ownsOuter
+                       naked l ownsInner
 
 -- | Cast a `Located` value to a smaller ownership set; useful when working with functions whos arguments have explict ownership sets.
 othersForget :: (KnownSymbols ls)
@@ -91,7 +85,7 @@ othersForget :: (KnownSymbols ls)
              -> Subset ls owners
              -> Located owners a
              -> Choreo census m (Located ls a)
-othersForget present owns located = enclave present $ naked owns located
+othersForget present owns located = enclave present $ naked located owns
 
 
 -- * Communication

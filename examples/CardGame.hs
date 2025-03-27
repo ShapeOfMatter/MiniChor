@@ -58,12 +58,10 @@ game = do
   let players = consSuper (refl @players)
       dealer = listedFirst @"dealer" -- listedFirst is just First with the type-arguments rearranged.
       everyone = refl @("dealer" ': players)
-  hand1 <-
-    ( fanIn everyone \(player :: Member player players) -> do
-        card1 <- locally dealer (getInput ("Enter random card for " ++ toLocTm player))
-        (dealer, card1) ~> everyone
-      )
-      >>= naked everyone
+  hand1' <- fanIn everyone \(player :: Member player players) -> do
+              card1 <- locally dealer (getInput ("Enter random card for " ++ toLocTm player))
+              (dealer, card1) ~> everyone
+  hand1 <- naked hand1' everyone
   wantsNextCard <- parallel players do
     putNote $ "All cards on the table: " ++ show hand1
     getInput "I'll ask for another? [True/False]"
@@ -81,6 +79,6 @@ game = do
   tableCard <- (dealer, tblCrd) ~> players
   void $ fanOut \p -> let player = inSuper players p
                       in enclave (player @@ nobody) do
-    hand <- (:) <$> naked (p @@ nobody) tableCard <*> viewFacet p (First @@ nobody) hand2
+    hand <- (:) <$> naked tableCard (p @@ nobody) <*> viewFacet p (First @@ nobody) hand2
     locally' do putNote $ "My hand: " ++ show hand
                 putOutput "My win result:" $ sum hand > card 19

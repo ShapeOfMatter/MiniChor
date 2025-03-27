@@ -7,7 +7,6 @@ module Choreography.Core
   ( -- * The `Choreo` monad and its operators
     Choreo(
     Locally,
-    Naked,
     Broadcast,
     Enclave,
     Bind,
@@ -18,7 +17,8 @@ module Choreography.Core
     runChoreo,
 
     -- * Located values
-    Located (),
+    Located (Located),
+    naked
   )
 where
 
@@ -29,26 +29,16 @@ import Data.List (delete)
 import GHC.TypeLits
 
 -- | A single value known to many parties.
-data Located (ls :: [LocTy]) a
-  = Wrap a
-  | Empty
+newtype Located (ls :: [LocTy]) a = Located { naked :: forall census m. Subset census ls -> Choreo census m a }
 
--- | Unwrap a `Located` value.
---   Unwrapping a empty located value will throw an exception; THIS SHOULD NOT BE EXPORTED!
-unwrap :: forall q. forall ls a. Member q ls -> Located ls a -> a
-unwrap _ (Wrap a) = a
-unwrap _ Empty = error "Located: This should never happen for a well-typed choreography."
+notMine :: Located ls a
+notMine = Located \_ -> pure undefined
 
 data Choreo (ps :: [LocTy]) m a where
   Locally ::
     (KnownSymbol l) =>
     m a ->
     Choreo '[l] m a
-  Naked ::
-    --(KnownSymbols ls) =>
-    Subset ps owners ->
-    Located owners a ->
-    Choreo ps m a
   Broadcast ::
     (Show a, Read a, KnownSymbol l) =>
     Member l ps -> -- from
@@ -93,11 +83,11 @@ runChoreo = handler
   where
     handler :: (Monad m) => Choreo census m a -> m a
     handler (Locally m) = m
-    handler (Naked owns a) = pure $ unwrap (inSuper owns First) a
-    handler (Broadcast _ (p, a)) = pure $ unwrap p a
+    handler (Broadcast _ (ownership, a)) = runChoreo $ naked a (ownership @@ nobody)
     handler (Enclave (_ :: Subset ls (p ': ps)) c) = case tySpine @ls of
-      TyNil -> pure Empty
-      TyCons -> Wrap <$> runChoreo c
+      TyNil -> pure notMine
+      TyCons -> do v <- runChoreo c
+                   pure $ Located \_ -> pure v
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
 
@@ -117,22 +107,17 @@ epp c l' = handler c
   where
     handler :: Choreo ps m a -> Network m a
     handler (Locally m) = Run $ m
-    handler (Naked owns a) =
-      let unwraps :: forall c ls. Subset ps ls -> Located ls c -> c
-          unwraps = case tySpine @ps of
-            TyNil -> error "Undefined projection: the census is empty."
-            TyCons -> unwrap . (\(Subset mx) -> mx First) -- wish i could write this better.
-       in pure $ unwraps owns a
     handler (Broadcast s (l, a)) = do
       let sender = toLocTm s
       let otherRecipients = sender `delete` toLocs (refl :: Subset ps ps)
       if sender == l'
-        then do
-          Send (unwrap l a) otherRecipients
-          pure . unwrap l $ a
+        then do val <- epp (naked a (l @@ nobody)) l'
+                Send val otherRecipients
+                pure val
         else Recv sender
     handler (Enclave proof ch)
-      | l' `elem` toLocs proof = Wrap <$> epp ch l'
-      | otherwise = pure Empty
+      | l' `elem` toLocs proof = do val <- epp ch l'
+                                    pure $ Located \_ -> pure val
+      | otherwise = pure notMine
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont

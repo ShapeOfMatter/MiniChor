@@ -110,15 +110,15 @@ lottery clients servers analyst = do
   ρ' <- gather servers servers ρ
   -- 4) All servers verify each other's commitment by checking α = H(ρ, ψ)
   void $ fanOut \server -> enclave (inSuper servers server @@ nobody) do
-         ψ'' <- naked (server @@ nobody) ψ'
-         ρ'' <- naked (server @@ nobody) ρ'
-         α'' <- naked (server @@ nobody) α'
+         ψ'' <- naked ψ' (server @@ nobody)
+         ρ'' <- naked ρ' (server @@ nobody)
+         α'' <- naked α' (server @@ nobody)
          unless (α'' == (hash <$> ψ'' <*> ρ'')) $ locally' (liftIO $ throwIO CommitmentCheckFailed)
   -- 5) If all the checks are successful, then sum random values to get the random index.
   ω <- congruently1 servers (refl, ρ') (\rho' -> sum rho' `mod` length (toLocs clients))
   chosenShares <- fanOut \server -> enclave (inSuper servers server @@ nobody) do
                     ss <- viewFacet server (First @@ nobody) serverShares 
-                    omega <- naked (server @@ nobody) ω
+                    omega <- naked ω (server @@ nobody)
                     return $ toList ss !! omega
   -- Servers forward shares to an analyist.
   allShares <- gather servers (analyst @@ nobody) chosenShares

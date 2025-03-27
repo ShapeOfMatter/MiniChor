@@ -95,10 +95,10 @@ karatsuba a b c n1 n2 = do
         z1' <- karatsuba a b c s1 s2
         z1 <- congruently3 (a @@ nobody) (refl, z0) (refl, z1') (refl, z2) \z0a z1a z2a -> z1a - z2a - z0a
         enclave (a @@ nobody) do
-          s <- splitter <$> naked refl x
-          z2a <- naked refl z2
-          z1a <- naked refl z1
-          z0a <- naked refl z0
+          s <- splitter <$> naked x refl
+          z2a <- naked z2 refl
+          z1a <- naked z1 refl
+          z0a <- naked z0 refl
           pure $ (z2a * s * s) + (z1a * s) + z0a
         where
           f n1' n2' = KaratsubaNums {splitter = splitter, h1 = h1, l1 = l1, h2 = h2, l2 = l2}

@@ -102,7 +102,7 @@ reveal shares = do
   let ps = allOf @ps
   allShares <- gather ps ps shares
   value <- congruently1 ps (ps, allShares) xor
-  naked ps value
+  naked value ps
 
 computeWire ::
   (KnownSymbols ps, KnownSymbols parties, KnownSymbol trustedAnd, MonadIO m) =>
@@ -144,4 +144,4 @@ mpc circuit = do
   let parties = consSuper refl
   outputWire <- computeWire trusted3rdParty parties circuit
   result <- enclave parties $ reveal outputWire
-  void $ fanOut \p -> enclave (Later p @@ nobody) $ naked (p @@ nobody) result >>= (locally' . putOutput "The resulting bit:")
+  void $ fanOut \p -> enclave (Later p @@ nobody) $ naked result (p @@ nobody) >>= (locally' . putOutput "The resulting bit:")

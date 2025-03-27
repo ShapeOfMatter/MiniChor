@@ -144,12 +144,12 @@ ot4Insecure b1 b2 b3 b4 s1 s2 = do
   s1r <- (receiver, s1) ~> sender @@ nobody
   s2r <- (receiver, s2) ~> sender @@ nobody
   b <- enclave (sender @@ nobody) do
-    s1r' <- naked refl s1r
-    s2r' <- naked refl s2r
-    b1' <- naked refl b1
-    b2' <- naked refl b2
-    b3' <- naked refl b3
-    b4' <- naked refl b4
+    s1r' <- naked s1r refl
+    s2r' <- naked s2r refl
+    b1' <- naked b1 refl
+    b2' <- naked b2 refl
+    b3' <- naked b3 refl
+    b4' <- naked b4 refl
     pure $ select4 s1r' s2r' b1' b2' b3' b4'
   (sender, b) ~> receiver @@ nobody
 
@@ -214,18 +214,18 @@ ot4 b1 b2 b3 b4 s1 s2 = do
   pk1234 <- congruently1 (receiver @@ nobody) (refl, keys) \(pk1, pk2, pk3, pk4, _) -> (pk1, pk2, pk3, pk4)
   pks <- (receiver, pk1234) ~> sender @@ nobody
   encr <- enclave (sender @@ nobody) do
-    pks' <- naked refl pks
-    b1' <- naked refl b1
-    b2' <- naked refl b2
-    b3' <- naked refl b3
-    b4' <- naked refl b4
+    pks' <- naked pks refl
+    b1' <- naked b1 refl
+    b2' <- naked b2 refl
+    b3' <- naked b3 refl
+    b4' <- naked b4 refl
     locally' $ liftIO $ enc4 pks' b1' b2' b3' b4'
   encrypted <- (sender, encr) ~> receiver @@ nobody
   enclave (receiver @@ nobody) do
-    keys' <- naked refl keys
-    s1' <- naked refl s1
-    s2' <- naked refl s2
-    encrypted' <- naked refl encrypted
+    keys' <- naked keys refl
+    s1' <- naked s1 refl
+    s2' <- naked s2 refl
+    encrypted' <- naked encrypted refl
     locally' $ liftIO $ dec4 keys' s1' s2' encrypted'
 
 -- Test function
