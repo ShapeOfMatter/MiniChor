@@ -153,34 +153,30 @@ s ~> rs = do
 -- * Enclaves
 
 -- | Lift a choreography of involving fewer parties into the larger party space.
---   Adds a `Located ls` layer to the return type.
-enclave ::
-  (KnownSymbols ls) =>
-  Subset ls ps ->
-  Choreo ls m a ->
-  Choreo ps m (Located ls a)
-enclave proof ch = Enclave proof ch
-
--- | Lift a choreography involving fewer parties into the larger party space.
---   This version, where the returned value is Located at the entire enclave, does not add a Located layer.
-enclaveToAll :: forall ls a ps m. (KnownSymbols ls) => Subset ls ps -> Choreo ls m (Located ls a) -> Choreo ps m (Located ls a)
-
-infix 4 `enclaveToAll`
-
-enclaveToAll = (`enclaveTo` (refl @ls))
-
--- | Lift a choreography of involving fewer parties into the larger party space.
---   This version, where the returned value is already Located, does not add a Located layer.
 enclaveTo ::
-  forall ls a rs ps m.
-  (KnownSymbols ls,
-   KnownSymbols rs) =>
+  (KnownSymbols ls) =>
   Subset ls ps ->
   Subset rs ls ->
   Choreo ls m (Located rs a) ->
   Choreo ps m (Located rs a)
+enclaveTo proof1 proof2 ch = EnclaveTo proof1 proof2 ch
 
-infix 4 `enclaveTo`
+-- | Lift a choreography involving fewer parties into the larger party space.
+enclaveToAll :: forall ls a ps m. (KnownSymbols ls) => Subset ls ps -> Choreo ls m (Located ls a) -> Choreo ps m (Located ls a)
 
-enclaveTo subcensus recipients ch = do nested <- subcensus `enclave` ch
-                                       flatten (recipients `transitive` subcensus) recipients (refl @rs) nested
+infix 4 `enclaveToAll`
+
+enclaveToAll present ch = enclaveTo present refl ch
+
+-- | Lift a choreography of involving fewer parties into the larger party space.
+enclave ::
+  forall ls a ps m.
+  (KnownSymbols ls) =>
+  Subset ls ps ->
+  Choreo ls m a ->
+  Choreo ps m (Located ls a)
+
+infix 4 `enclave`
+
+enclave subcensus ch = enclaveToAll subcensus do x <- ch
+                                                 pure $ Located \_ -> pure x

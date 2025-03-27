@@ -8,7 +8,7 @@ module Choreography.Core
     Choreo(
     Locally,
     Broadcast,
-    Enclave,
+    EnclaveTo,
     Bind,
     Return),
 
@@ -44,11 +44,12 @@ data Choreo (ps :: [LocTy]) m a where
     Member l ps -> -- from
     (Member l ls, Located ls a) -> -- value
     Choreo ps m a
-  Enclave ::
-    (KnownSymbols ls) =>
-    Subset ls ps ->
-    Choreo ls m b ->
-    Choreo ps m (Located ls b)
+  EnclaveTo ::
+    (KnownSymbols inner) =>
+    Subset inner outer ->
+    Subset owners inner ->
+    Choreo inner m (Located owners b) ->
+    Choreo outer m (Located owners b)
   Return :: a -> Choreo ps m a
   Bind :: Choreo ps m a -> (a -> Choreo ps m b) -> Choreo ps m b
 
@@ -70,8 +71,8 @@ instance (MonadFail (Choreo ps m),
           KnownSymbols ps,
           MonadFail m) =>
           MonadFail (Choreo (p ': ps) m) where
-  fail message = do void . Enclave (First @@ nobody) . Locally $ fail message
-                    void . Enclave (consSuper refl) $ fail message
+  fail message = do void . EnclaveTo (First @@ nobody) refl . Locally $ fail message
+                    void . EnclaveTo (consSuper refl) refl $ fail message
                     pure undefined
 
 
@@ -84,10 +85,9 @@ runChoreo = handler
     handler :: (Monad m) => Choreo census m a -> m a
     handler (Locally m) = m
     handler (Broadcast _ (ownership, a)) = runChoreo $ naked a (ownership @@ nobody)
-    handler (Enclave (_ :: Subset ls (p ': ps)) c) = case tySpine @ls of
+    handler (EnclaveTo (_ :: Subset ls (p ': ps)) _ c) = case tySpine @ls of
       TyNil -> pure notMine
-      TyCons -> do v <- runChoreo c
-                   pure $ Located \_ -> pure v
+      TyCons -> runChoreo c
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
 
@@ -115,9 +115,8 @@ epp c l' = handler c
                 Send val otherRecipients
                 pure val
         else Recv sender
-    handler (Enclave proof ch)
-      | l' `elem` toLocs proof = do val <- epp ch l'
-                                    pure $ Located \_ -> pure val
+    handler (EnclaveTo proof _ ch)
+      | l' `elem` toLocs proof = epp ch l'
       | otherwise = pure notMine
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
