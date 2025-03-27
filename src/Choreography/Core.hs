@@ -19,9 +19,6 @@ module Choreography.Core
 
     -- * Located values
     Located (),
-    Unwrap,
-    Unwraps,
-    wrap, -- consider renaming or removing.
   )
 where
 
@@ -36,26 +33,9 @@ data Located (ls :: [LocTy]) a
   = Wrap a
   | Empty
 
--- | Wrap a value as a located value.
---   This should be safe to export, while exporting the constuctor would enable pattern matching.
-wrap :: a -> Located l a
-wrap = Wrap
-
--- | Unwraps values known to the specified party.
---   You should not be able to build such a function in normal code;
---   these functions are afforded only for use in "local" computation.
-type Unwrap (q :: LocTy) = forall ls a. Member q ls -> Located ls a -> a
-
--- | Unwraps values known to the specified list of parties.
---   You should not be able to build such a function in normal code;
---   these functions are afforded only for use in "local" computation.
---   (Could be dangerous if the list is empty,
---   but the API is designed so that no value of type `Unwraps '[]` will ever actually get evaluated.)
-type Unwraps (qs :: [LocTy]) = forall ls a. Subset qs ls -> Located ls a -> a
-
 -- | Unwrap a `Located` value.
 --   Unwrapping a empty located value will throw an exception; THIS SHOULD NOT BE EXPORTED!
-unwrap :: Unwrap q
+unwrap :: forall q. forall ls a. Member q ls -> Located ls a -> a
 unwrap _ (Wrap a) = a
 unwrap _ Empty = error "Located: This should never happen for a well-typed choreography."
 
@@ -117,7 +97,7 @@ runChoreo = handler
     handler (Broadcast _ (p, a)) = pure $ unwrap p a
     handler (Enclave (_ :: Subset ls (p ': ps)) c) = case tySpine @ls of
       TyNil -> pure Empty
-      TyCons -> wrap <$> runChoreo c
+      TyCons -> Wrap <$> runChoreo c
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
 
@@ -152,7 +132,7 @@ epp c l' = handler c
           pure . unwrap l $ a
         else Recv sender
     handler (Enclave proof ch)
-      | l' `elem` toLocs proof = wrap <$> epp ch l'
+      | l' `elem` toLocs proof = Wrap <$> epp ch l'
       | otherwise = pure Empty
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
