@@ -59,7 +59,7 @@ library
         Choreography.Choreography
         Choreography.Choreography.Batteries
         Choreography.Core
-        Choreography.Locations
+        Choreography.Party
         Choreography.Locations.Batteries
         Choreography.Network
         Choreography.Network.Http

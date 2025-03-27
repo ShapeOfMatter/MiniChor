@@ -14,7 +14,7 @@ module Choreography.Network (
   Backend(runNetwork)
 ) where
 
-import Choreography.Locations (LocTm)
+import Choreography.Party (PartyName)
 import Control.Monad.IO.Class
 
 -- * The Network monad
@@ -29,12 +29,12 @@ data Network m a where
   Send ::
     (Show a) =>
     a ->
-    [LocTm] ->
+    [PartyName] ->
     Network m ()
   -- | Receiving.
   Recv ::
     (Read a) =>
-    LocTm ->
+    PartyName ->
     Network m a
   Return :: a -> Network m a
   Bind :: Network m a -> (a -> Network m b) -> Network m b
@@ -56,4 +56,4 @@ instance Monad (Network m) where
 -- carries necessary bookkeeping information, then defines @c@ as an instance
 -- of `Backend` and provides a `runNetwork` function.
 class Backend c where
-  runNetwork :: (MonadIO m) => c -> LocTm -> Network m a -> m a
+  runNetwork :: (MonadIO m) => c -> PartyName -> Network m a -> m a

@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | This module defines `Choreo`, the monad for writing choreographies,
 --   and the closely related `Located` data type.
 --   Not everything here is user-friendly; this is were we declare the foundational concepts.
@@ -25,14 +26,15 @@ module Choreography.Core
   )
 where
 
-import Choreography.Locations
+import Choreography.Party
 import Choreography.Network hiding (Bind, Return)
 import Control.Monad (void)
 import Data.List (delete)
+import Data.Proxy (Proxy(Proxy))
 import GHC.TypeLits
 
 -- | A single value known to many parties.
-data Located (ls :: [LocTy]) a
+data Located (ls :: [PartyType]) a
   = Wrap a
   | Empty
 
@@ -44,41 +46,39 @@ wrap = Wrap
 -- | Unwraps values known to the specified party.
 --   You should not be able to build such a function in normal code;
 --   these functions are afforded only for use in "local" computation.
-type Unwrap (q :: LocTy) = forall ls a. Member q ls -> Located ls a -> a
+type Unwrap (q :: PartyType) = forall ls a. Member q ls => Located ls a -> a
 
 -- | Unwraps values known to the specified list of parties.
 --   You should not be able to build such a function in normal code;
 --   these functions are afforded only for use in "local" computation.
 --   (Could be dangerous if the list is empty,
 --   but the API is designed so that no value of type `Unwraps '[]` will ever actually get evaluated.)
-type Unwraps (qs :: [LocTy]) = forall ls a. Subset qs ls -> Located ls a -> a
+type Unwraps (qs :: [PartyType]) = forall ls a. Subset qs ls => Located ls a -> a
 
 -- | Unwrap a `Located` value.
 --   Unwrapping a empty located value will throw an exception; THIS SHOULD NOT BE EXPORTED!
-unwrap :: Unwrap q
+unwrap :: forall self. forall owners a. Member self owners => PartyID self -> Located owners a -> a
 unwrap _ (Wrap a) = a
 unwrap _ Empty = error "Located: This should never happen for a well-typed choreography."
 
-data Choreo (ps :: [LocTy]) m a where
+data Choreo (ps :: [PartyType]) m a where
   Locally ::
     (KnownSymbol l) =>
     m a ->
     Choreo '[l] m a
-  Naked ::
-    --(KnownSymbols ls) =>
-    Subset ps owners ->
+  Naked :: forall census owners a m.
+    Subset census owners =>
     Located owners a ->
-    Choreo ps m a
-  Broadcast ::
-    (Show a, Read a, KnownSymbol l) =>
-    Member l ps -> -- from
-    (Member l ls, Located ls a) -> -- value
-    Choreo ps m a
-  Enclave ::
-    (KnownSymbols ls) =>
-    Subset ls ps ->
-    Choreo ls m b ->
-    Choreo ps m (Located ls b)
+    Choreo census m a
+  Broadcast :: forall sender census owners a m.
+    (Show a, Read a, KnownSymbol sender, Member sender census, Member sender owners) =>
+    PartyID sender ->
+    Located owners a -> -- value
+    Choreo census m a
+  Enclave :: forall inner outer a m.
+    (KnownSymbols inner, Subset inner outer) =>
+    Choreo inner m a ->
+    Choreo outer m (Located inner a)
   Return :: a -> Choreo ps m a
   Bind :: Choreo ps m a -> (a -> Choreo ps m b) -> Choreo ps m b
 
@@ -98,10 +98,12 @@ instance MonadFail (Choreo '[] m) where
 instance (MonadFail (Choreo ps m),
           KnownSymbol p,
           KnownSymbols ps,
+          Subset '[p] (p ': ps),
+          Subset ps (p ': ps),
           MonadFail m) =>
-          MonadFail (Choreo (p ': ps) m) where
-  fail message = do void . Enclave (First @@ nobody) . Locally $ fail message
-                    void . Enclave (consSuper refl) $ fail message
+         MonadFail (Choreo (p ': ps) m) where
+  fail message = do void . Enclave @'[p] @(p ': ps) . Locally $ fail @m message
+                    void . Enclave $ fail @(Choreo ps m) message
                     pure undefined
 
 
@@ -113,11 +115,11 @@ runChoreo = handler
   where
     handler :: (Monad m) => Choreo census m a -> m a
     handler (Locally m) = m
-    handler (Naked owns a) = pure $ unwrap (inSuper owns First) a
-    handler (Broadcast _ (p, a)) = pure $ unwrap p a
-    handler (Enclave (_ :: Subset ls (p ': ps)) c) = case tySpine @ls of
-      TyNil -> pure Empty
-      TyCons -> wrap <$> runChoreo c
+    handler (Naked a) = pure $ unwrap (PartyID (Proxy @p)) a
+    handler (Broadcast s a) = pure $ unwrap s a
+    handler (Enclave (c :: Choreo ls m a)) = case partiesSpine @ls of
+      PartiesNil -> pure Empty
+      PartiesCons _ _ -> wrap <$> runChoreo c
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
 
@@ -130,29 +132,29 @@ epp ::
   -- | A `String` identifying a party.
   --   At present there is no enforcement that the party will actually be in the census of the choreography;
   --   some bugs may be possible if it is not.
-  LocTm ->
+  PartyName ->
   -- | Returns the implementation of the party's role in the choreography.
   Network m b
 epp c l' = handler c
   where
     handler :: Choreo ps m a -> Network m a
     handler (Locally m) = Run $ m
-    handler (Naked owns a) =
-      let unwraps :: forall c ls. Subset ps ls -> Located ls c -> c
-          unwraps = case tySpine @ps of
-            TyNil -> error "Undefined projection: the census is empty."
-            TyCons -> unwrap . (\(Subset mx) -> mx First) -- wish i could write this better.
-       in pure $ unwraps owns a
-    handler (Broadcast s (l, a)) = do
-      let sender = toLocTm s
-      let otherRecipients = sender `delete` toLocs (refl :: Subset ps ps)
+    handler (Naked a) =
+      let unwraps :: forall c ls. Subset ps ls => Located ls c -> c
+          unwraps = case partiesSpine @ps of
+            PartiesNil -> error "Undefined projection: the census is empty."
+            PartiesCons h _ -> unwrap h
+       in pure $ unwraps a
+    handler (Broadcast s a) = do
+      let sender = show s
+      let otherRecipients = sender `delete` namesOf (partiesSpine @ps)
       if sender == l'
         then do
-          Send (unwrap l a) otherRecipients
-          pure . unwrap l $ a
+          Send (unwrap s a) otherRecipients
+          pure . unwrap s $ a
         else Recv sender
-    handler (Enclave proof ch)
-      | l' `elem` toLocs proof = wrap <$> epp ch l'
+    handler (Enclave (ch :: Choreo inner m a))
+      | l' `elem` namesOf (partiesSpine @inner) = wrap <$> epp ch l'
       | otherwise = pure Empty
     handler (Return a) = pure a
     handler (Bind m cont) = handler m >>= handler . cont
