@@ -3,7 +3,6 @@ module Choreography.Choreography where
 
 import Choreography.Core
 import Choreography.Locations
-import Choreography.Locations.Batteries (ExplicitMember (..))
 import CLI (CLI)
 import GHC.TypeLits
 
@@ -32,16 +31,30 @@ infix 4 `locally`
 
 locally l m = enclave (l @@ nobody) $ locally' m
 
--- | Perform the exact same pure computation in replicate at multiple locations.
+lMap :: 
+  (KnownSymbols targets, KnownSymbols owners1) =>
+  (a -> b) ->
+  (Subset targets owners1, Subset owners1 census, Located owners1 a) ->
+  Choreo census (Located targets b)
+f `lMap` (owns1, presence1, la) = (f <$>) <$> othersForget owns1 presence1 la
+
+lSplat ::
+  (KnownSymbols targets, KnownSymbols owners2) =>
+  Choreo census (Located targets (b -> c)) ->
+  (Subset targets owners2, Subset owners2 census, Located owners2 b) ->
+  Choreo census (Located targets c)
+f `lSplat` (owns2, presence2, lb) = (<*>) <$> f <*> othersForget owns2 presence2 lb
+
+{--- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
 congruently1 ::
   forall ls a census owners1 arg1 .
   (KnownSymbols ls) =>
-  Subset ls census ->
-  (Subset ls owners1, Located owners1 arg1) ->
+  (Subset ls owners1, Subset owners1 census, Located owners1 arg1) ->
   (arg1 -> a) ->
   Choreo census (Located ls a)
-congruently1 present (owns1, arg1) f = enclave present $ f <$> naked arg1 owns1
+congruently1 (owns1, presence1, arg1) f = do a1 <- othersForget owns1 presence1 arg1
+                                             return $ f <$> a1
 
 -- | Perform the exact same pure computation in replicate at multiple locations.
 --   The computation can not use anything local to an individual party, including their identity.
@@ -78,39 +91,17 @@ flatten :: (KnownSymbols ls)
         -> Choreo census (Located ls a)
 flatten present ownsOuter ownsInner nested =
     enclave present do l <- naked nested ownsOuter
-                       naked l ownsInner
+                       naked l ownsInner -}
 
 -- | Cast a `Located` value to a smaller ownership set; useful when working with functions whos arguments have explict ownership sets.
-othersForget :: (KnownSymbols ls)
-             => Subset ls census
-             -> Subset ls owners
+othersForget :: (KnownSymbols ls, KnownSymbols owners)
+             => Subset ls owners
+             -> Subset owners census
              -> Located owners a
              -> Choreo census (Located ls a)
-othersForget present owns located = enclave present $ naked located owns
-
+othersForget owns presence located = enclaveTo presence owns $ pure <$> located
 
 -- * Communication
-
--- | Writing out the first argument to `~>` can be done a few different ways depending on context, represented by this class.
-class (KnownSymbol loc) => CanSend struct loc val owners census | struct -> loc val owners census where
-  presentToSend :: struct -> Member loc census
-  ownsMessagePayload :: struct -> Member loc owners
-  structMessagePayload :: struct -> Located owners val
-
-instance (KnownSymbol l) => CanSend (Member l ps, (Member l ls, Located ls a)) l a ls ps where
-  presentToSend = fst
-  ownsMessagePayload = fst . snd
-  structMessagePayload = snd . snd
-
-instance (KnownSymbol l, ExplicitMember l ls) => CanSend (Member l ps, Located ls a) l a ls ps where
-  presentToSend = fst
-  ownsMessagePayload = const explicitMember
-  structMessagePayload = snd
-
-instance (KnownSymbol l) => CanSend (Member l ls, Subset ls ps, Located ls a) l a ls ps where
-  presentToSend (m, s, _) = inSuper s m
-  ownsMessagePayload (m, _, _) = m
-  structMessagePayload (_, _, p) = p
 
 -- | Communicate a value to all present parties.
 broadcast' ::
@@ -118,38 +109,48 @@ broadcast' ::
   -- | Proof the sender is present
   Member l ps ->
   -- | Proof the sender knows the value, the value.
-  (Member l ls, Located ls a) ->
+  Located '[l] a ->
   Choreo ps a
 broadcast' l a = Broadcast l a
 
 -- | Send a value from one party to the entire census.
 broadcast ::
-  forall l a ps ls s.
-  (Show a, Read a, KnownSymbol l, KnownSymbols ps, CanSend s l a ls ps) =>
-  s ->
-  Choreo ps a
-broadcast s = broadcast' (presentToSend s) (ownsMessagePayload s, structMessagePayload s)
+  forall sender a owners census.
+  (Show a, Read a, KnownSymbol sender, KnownSymbols census, KnownSymbols owners) =>
+  Member sender owners ->
+  Subset owners census ->
+  Located owners a ->
+  Choreo census a
+broadcast owns present a = othersForget (owns @@ nobody) present a >>= broadcast' (inSuper present owns)
+
+-- | Communication between a sender and a list of receivers.
+(-~>) ::
+  (Show a, Read a, KnownSymbol sender, KnownSymbols ls', KnownSymbols owners) =>
+  (Member sender owners, Subset owners census, Located owners a) ->
+  -- | The recipients.
+  Subset ls' census ->
+  Choreo census (Located ls' a)
+
+infix 4 -~>
+
+(owns, present, a) -~> rs = do
+  x <- othersForget (owns @@ nobody) present a
+  x' <- enclave (inSuper present owns @@ rs) $ broadcast' First x
+  othersForget consSet (inSuper present owns @@ rs) x'
 
 -- | Communication between a sender and a list of receivers.
 (~>) ::
-  (Show a, Read a, KnownSymbol l, KnownSymbols ls', CanSend s l a ls ps) =>
-  -- | The message argument can take three forms:
-  --
-  --   >  (Member sender census, wrapped owners a) -- where sender is explicitly listed in owners
-  --
-  --   >  (Member sender owners, Subset owners census, wrapped owners a)
-  --
-  --   >  (Member sender census, (Member sender owners, wrapped owners a)
-  s ->
+  (Show a, Read a, KnownSymbol sender, KnownSymbols ls') =>
+  (Member sender census, Located '[sender] a) ->
   -- | The recipients.
-  Subset ls' ps ->
-  Choreo ps (Located ls' a)
+  Subset ls' census ->
+  Choreo census (Located ls' a)
 
 infix 4 ~>
 
-s ~> rs = do
-  x <- enclave (presentToSend s @@ rs) $ broadcast' First (ownsMessagePayload s, structMessagePayload s)
-  othersForget rs consSet x
+(present, a) ~> rs = do
+  x' <- enclave (present @@ rs) $ broadcast' First a
+  othersForget consSet (present @@ rs) x'
 
 -- * Enclaves
 
@@ -179,5 +180,4 @@ enclave ::
 
 infix 4 `enclave`
 
-enclave subcensus ch = enclaveToAll subcensus do x <- ch
-                                                 pure $ Located \_ -> pure x
+enclave subcensus ch = enclaveToAll subcensus $ ch >>= pure . pure

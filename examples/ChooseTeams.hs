@@ -34,14 +34,14 @@ game :: forall players . (KnownSymbols players) => Choreo players ()
 game = do
   let players = allOf @players
   let (red, blue) = chooseTeams $ toLocs players
-  numbers <- fanIn players \p ->
+  ns <- fanIn players \p ->
     if toLocTm p `elem` red
-      then (p, Just <$> getInput @Int "A number to send:") -~> players
+      then (p, locally' $ Just <$> getInput @Int "A number to send:") ~> players
       else enclave players $ return Nothing
-  void $ fanOut \p -> enclave ((players `inSuper` p) @@ nobody)
+  numbers <- ns
+  void $ fanOut \p -> 
     if (toLocTm p `elem` blue)
       then do
-        n <- naked numbers (p @@ nobody)
-        locally' $ putOutput "Numbers recieved:" $ catMaybes . toList $ n
+        locally p (putOutput "Numbers recieved:" . catMaybes . toList $ numbers)
       else 
-        return ()
+        pure $ pure ()

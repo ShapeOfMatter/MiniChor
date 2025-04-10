@@ -29,7 +29,6 @@ module Karatsuba where
 import Choreography
 import Choreography.Network.Local
 import CLI (runCLIIO)
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.Async (mapConcurrently_)
 import GHC.TypeLits (KnownSymbol)
@@ -78,29 +77,30 @@ karatsuba ::
   Located '[a] Integer ->
   Choreo Participants (Located '[a] Integer)
 karatsuba a b c n1 n2 = do
-  done <- congruently2 (a @@ nobody) (refl, n1) (refl, n2) \n1' n2' -> n1' < 10 || n2' < 10
-  broadcast (a, done)
+  let test x y = x < 10 || y < 10
+  let done = test <$> n1 <*> n2
+  broadcast First (a @@ nobody) done
     >>= \case
-      True -> congruently2 (a @@ nobody) (refl, n1) (refl, n2) (*)
+      True -> enclave (a @@ nobody) $ (*) <$> n1 <*> n2
       False -> do
-        x <- congruently2 (a @@ nobody) (refl, n1) (refl, n2) f
-        l1' <- congruently1 (a @@ nobody) (refl, x) l1 >>= ((~> b @@ nobody) . (a,))  -- this gets less dumb if located is a functor!
-        l2' <- congruently1 (a @@ nobody) (refl, x) l2 >>= ((~> b @@ nobody) . (a,))
-        h1' <- congruently1 (a @@ nobody) (refl, x) h1 >>= ((~> c @@ nobody) . (a,))  -- this gets less dumb if located is a functor!
-        h2' <- congruently1 (a @@ nobody) (refl, x) h2 >>= ((~> c @@ nobody) . (a,))  -- this gets less dumb if located is a functor!
+        let x = f <$> n1 <*> n2
+        l1' <- (a, l1 <$> x) ~> b @@ nobody
+        l2' <- (a, l2 <$> x) ~> b @@ nobody
+        h1' <- (a, h1 <$> x) ~> c @@ nobody
+        h2' <- (a, h2 <$> x) ~> c @@ nobody
         z0' <- karatsuba b c a l1' l2'
         z0 <- (b, z0') ~> a @@ nobody
         z2' <- karatsuba c a b h1' h2'
         z2 <- (c, z2') ~> a @@ nobody
-        s1 <- congruently1 (a @@ nobody) (refl, x) \x' -> l1 x' + h1 x'
-        s2 <- congruently1 (a @@ nobody) (refl, x) \x' -> l2 x' + h2 x'
+        let s1 = (+) <$> (l1 <$> x) <*> (h1 <$> x)
+        let s2 = (+) <$> (l2 <$> x) <*> (h2 <$> x)
         z1' <- karatsuba a b c s1 s2
-        z1 <- congruently3 (a @@ nobody) (refl, z0) (refl, z1') (refl, z2) \z0a z1a z2a -> z1a - z2a - z0a
+        let z1 = do { z0a <- z0; z1a <- z1'; z2a <- z2; pure $ z1a - z2a - z0a }
         enclave (a @@ nobody) do
-          s <- splitter <$> naked x refl
-          z2a <- naked z2 refl
-          z1a <- naked z1 refl
-          z0a <- naked z0 refl
+          s <- splitter <$> x
+          z2a <- z2
+          z1a <- z1
+          z0a <- z0
           pure $ (z2a * s * s) + (z1a * s) + z0a
         where
           f n1' n2' = KaratsubaNums {splitter = splitter, h1 = h1, l1 = l1, h2 = h2, l2 = l2}
@@ -120,7 +120,7 @@ mainChoreo n1' n2' = do
   n1 <- primary `locally` pure n1'
   n2 <- primary `locally` pure n2'
   result <- karatsuba primary worker1 worker2 n1 n2
-  void $ locally1 primary (primary, result) $ liftIO . print
+  locallyM_ primary $ liftIO . print <$> result
 
 main :: IO ()
 main = do

@@ -31,7 +31,6 @@ module MergeSort where
 import Choreography
 import Choreography.Network.Http
 import CLI (runCLIIO)
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
@@ -59,13 +58,13 @@ sort ::
   Located '[a] [Int] ->
   Choreo ps (Located '[a] [Int])
 sort a b c lst = do
-  condition <- congruently1 (a @@ nobody) (refl, lst) ((> 1) . length)
-  broadcast (a, condition) >>= \case
+  let condition = ((> 1) . length) <$> lst 
+  broadcast First (a @@ nobody) condition >>= \case
     True -> do
       -- _ <- a `locally` \un -> do return $ length (un singleton lst) `div` 2  -- IDK what this was for...
-      divided <- congruently1 (a @@ nobody) (refl, lst) divide
-      l <- congruently1 (a @@ nobody) (refl, divided) fst
-      r <- congruently1 (a @@ nobody) (refl, divided) snd
+      let divided = divide <$> lst
+          l = fst <$> divided
+          r = snd <$> divided
       l' <- (a, l) ~> b @@ nobody
       r' <- (a, r) ~> c @@ nobody
       ls' <- sort b c a l'
@@ -87,30 +86,30 @@ merge ::
   Located '[c] [Int] ->
   Choreo ps (Located '[a] [Int])
 merge a b c lhs rhs = do
-  lhsHasElements <- congruently1 (b @@ nobody) (refl, lhs) (not . null)
-  broadcast (b, lhsHasElements) >>= \case
+  let lhsHasElements = (not . null) <$> lhs
+  broadcast First (b @@ nobody) lhsHasElements >>= \case
     True -> do
-      rhsHasElements <- congruently1 (c @@ nobody) (refl, rhs) (not . null)
-      broadcast (c, rhsHasElements) >>= \case
+      let rhsHasElements = (not . null) <$> rhs
+      broadcast First (c @@ nobody) rhsHasElements >>= \case
         True -> do
-          rhsHeadAtC <- congruently1 (c @@ nobody) (refl, rhs) head
+          let rhsHeadAtC = head <$> rhs
           rhsHeadAtB <- (c, rhsHeadAtC) ~> b @@ nobody
-          takeLhs <- congruently2 (b @@ nobody) (refl, lhs) (refl, rhsHeadAtB) \lhs' rhsH -> head lhs' <= rhsH
-          broadcast (b, takeLhs) >>= \case
+          let takeLhs = (\lhs' rhsH -> head lhs' <= rhsH) <$> lhs <*> rhsHeadAtB
+          broadcast First (b @@ nobody) takeLhs >>= \case
             True -> do
               -- take (head lhs) and merge the rest
-              lhs' <- congruently1 (b @@ nobody) (refl, lhs) tail
+              let lhs' = tail <$> lhs
               merged <- merge a b c lhs' rhs
-              lhsHeadAtB <- congruently1 (b @@ nobody) (refl, lhs) head
+              let lhsHeadAtB = head <$> lhs
               lhsHeadAtA <- (b, lhsHeadAtB) ~> a @@ nobody
-              congruently2 (a @@ nobody) (refl, lhsHeadAtA) (refl, merged) (:)
+              pure $ (:) <$> lhsHeadAtA <*> merged
             False -> do
               -- take (head rhs) and merge the rest
-              rhs' <- congruently1 (c @@ nobody) (refl, rhs) tail
+              let rhs' = tail <$> rhs
               merged <- merge a b c lhs rhs'
-              rhsHeadAtC' <- congruently1 (c @@ nobody) (refl, rhs) head
+              let rhsHeadAtC' = head <$> rhs
               rhsHeadAtA <- (c, rhsHeadAtC') ~> a @@ nobody
-              congruently2 (a @@ nobody) (refl, rhsHeadAtA) (refl, merged) (:)
+              pure $ (:) <$> rhsHeadAtA <*> merged
         False -> do
           (b, lhs) ~> a @@ nobody
     False -> do
@@ -120,7 +119,7 @@ mainChoreo :: Choreo Participants ()
 mainChoreo = do
   lst <- primary `locally` return [1, 6, 5, 3, 4, 2, 7, 8]
   sorted <- sort primary worker1 worker2 lst
-  void $ locally1 primary (primary, sorted) (liftIO . print)
+  locallyM_ primary $ (liftIO . print) <$> sorted
   return ()
 
 main :: IO ()

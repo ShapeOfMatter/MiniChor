@@ -121,7 +121,7 @@ Test-Suite testExamples
                  , MPCFake
                  , ObliviousTransfer
                  , QuickSort
-                 --, RingLeader
+                 , RingLeader
 
 executable bank-2pc
     import: example
@@ -222,8 +222,8 @@ executable quicksort
     ghc-options:
       -main-is QuickSort
 
---executable ring-leader
---    import: example
---    main-is:          RingLeader.hs
---    ghc-options:
---      -main-is RingLeader
+executable ring-leader
+    import: example
+    main-is:          RingLeader.hs
+    ghc-options:
+      -main-is RingLeader

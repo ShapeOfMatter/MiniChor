@@ -73,16 +73,15 @@ instance TestArgs Args (Bool, Bool, Bool, Bool) where
       answer = recurse circuit
 
 secretShare ::
-  forall p parties owners ps .
+  forall p parties ps.
   (KnownSymbols parties, KnownSymbol p) =>
   Subset parties ps ->
   Member p ps ->
-  (Member p owners, Located owners Bool) ->
+  Located '[p] Bool ->
   Choreo ps (Faceted parties '[] Bool)
-secretShare parties p (ownership, value) = do
-  shares <- locally1 p (ownership, value) genShares
-  PIndexed fs <- scatter p parties shares
-  fanOut (\q -> othersForget (inSuper parties q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
+secretShare parties p value = do
+  shares <- locallyM p $ genShares <$> value
+  scatter' p parties shares
   where
     genShares x = case tySpine @parties of
       TyCons -> gs'
@@ -101,8 +100,7 @@ reveal ::
 reveal shares = do
   let ps = allOf @ps
   allShares <- gather ps ps shares
-  value <- congruently1 ps (ps, allShares) xor
-  naked value ps
+  xor <$> allShares
 
 computeWire ::
   (KnownSymbols ps, KnownSymbols parties, KnownSymbol trustedAnd) =>
@@ -113,7 +111,7 @@ computeWire ::
 computeWire trustedAnd parties circuit = case circuit of
   InputWire p -> do
     value <- inSuper parties p `locally` getInput "Enter a secret input value:"
-    secretShare parties (inSuper parties p) (singleton, value)
+    secretShare parties (inSuper parties p) value
   LitWire b -> do
     let shares = partyNames `zip` (b : repeat False)
     fanOut \p -> inSuper parties p `locally` return (fromJust $ toLocTm p `lookup` shares)
@@ -121,17 +119,14 @@ computeWire trustedAnd parties circuit = case circuit of
     lResult <- compute l
     rResult <- compute r
     inputShares <- fanIn (trustedAnd @@ nobody) \p -> do
-      results <- congruently2 (inSuper parties p @@ nobody) (refl, localize p lResult) (refl, localize p rResult) (,)
+      let results =  (,) <$> (localize p lResult) <*> (localize p rResult)
       (inSuper parties p, results) ~> trustedAnd @@ nobody
-    outputVal <- congruently1
-                   (trustedAnd @@ nobody)
-                   (refl, inputShares)
-                   \ovs -> xor (fst <$> ovs) && xor (snd <$> ovs)
-    secretShare parties trustedAnd (singleton, outputVal)
+    let outputVal = (\ovs -> xor (fst <$> ovs) && xor (snd <$> ovs)) <$> inputShares
+    secretShare parties trustedAnd outputVal
   XorGate l r -> do
     lResult <- compute l
     rResult <- compute r
-    fanOut \p -> enclave (inSuper parties p @@ nobody) $ (/=) <$> viewFacet p (First @@ nobody) lResult <*> viewFacet p (First @@ nobody) rResult
+    fanOut \p -> enclave (inSuper parties p @@ nobody) $ (/=) <$> localize p lResult <*> localize p rResult
   where
     compute = computeWire trustedAnd parties
     partyNames = toLocs parties
@@ -144,4 +139,4 @@ mpc circuit = do
   let parties = consSuper refl
   outputWire <- computeWire trusted3rdParty parties circuit
   result <- enclave parties $ reveal outputWire
-  void $ fanOut \p -> enclave (Later p @@ nobody) $ naked result (p @@ nobody) >>= (locally' . putOutput "The resulting bit:")
+  void $ fanOut \p -> enclaveTo parties (p @@ nobody) $ result >>= (\r -> locally p (putOutput "The resulting bit:" r))

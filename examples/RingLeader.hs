@@ -13,14 +13,13 @@ Experinmental implementaion of ring leader election.
 
 module RingLeader where
 
+import CLI
 import Choreography
 import Choreography.Network.Http
-import Control.Monad (void)
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.State
+import Control.Monad.IO.Class (liftIO)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
-{-
 -- an edge of the ring is represented as a tuple of two locaitons l and l' where
 -- l is on the left of l'
 data Edge g
@@ -33,35 +32,37 @@ type Ring g = [Edge g]
 
 type Label = Int
 
+type States g = Faceted g '[] (IORef Label)
+
 ringLeader :: forall g. (KnownSymbols g) => Ring g -> Choreo g () -- g for graph
-ringLeader r = loop r
+ringLeader r = initialize >>= (`loop` r)
   where
-    loop :: Ring g -> Choreo g ()
-    loop [] = loop r -- not very safe!
-    loop (x : xs) = do
-      finished <- talkToRight x
+    initialize :: Choreo g (States g)
+    initialize = parallel allOf $ getInput "Please input a label:" >>= liftIO . newIORef
+    loop :: States g -> Ring g -> Choreo g ()
+    loop states [] = loop states r -- not very safe!
+    loop states (x : xs) = do
+      finished <- talkToRight states x
       if finished
         then return ()
-        else loop xs
-
-    talkToRight :: Edge g -> Choreo g Bool
-    talkToRight (Edge left right) = do
-      ll <- left `locally` get
+        else loop states xs
+    get :: (KnownSymbol l) => States g -> Member l g -> Choreo g (Located '[l] Label)
+    get states l = locallyM l $ (liftIO . readIORef) <$> localize l states
+    put :: (KnownSymbol l) => States g -> Member l g -> Located '[l] Label -> Choreo g ()
+    put states l val = locallyM_ l $ (\state v -> liftIO $ writeIORef state v) <$> localize l states <*> val
+    talkToRight :: States g -> Edge g -> Choreo g Bool
+    talkToRight states (Edge left right) = do
+      ll <- get states left
       labelLeft <- (left, ll) ~> right @@ nobody
-      labelRight <- right `locally` get
+      labelRight <- get states right
 
-      finished <- locally2
-                    right
-                    (singleton, labelLeft)
-                    (singleton, labelRight)
-                    \lLeft lRight -> return $ lLeft == lRight
-
-      broadcast (right, finished) >>= \case
+      let finished = (==) <$> labelLeft <*> labelRight
+      broadcast First (right @@ nobody) finished >>= \case
         True -> do
-          right `locally_` lift (putStrLn "I'm the leader")
+          locally_ right (liftIO $ putStrLn "I'm the leader")
           return True
         False -> do
-          void $ locally2 right (singleton, labelLeft) (singleton, labelRight) \lLeft lRight -> put (max lLeft lRight)
+          put states right (max <$> labelLeft <*> labelRight)
           return False
 
 $(mkLoc "nodeA")
@@ -82,9 +83,7 @@ ring =
 main :: IO ()
 main = do
   [loc] <- getArgs
-  putStrLn "Please input a label:"
-  label <- read <$> getLine
-  _ <- runStateT (runChoreography config (ringLeader ring) loc) label
+  runCLIIO $ runChoreography config (ringLeader ring) loc
   return ()
   where
     config =
@@ -94,4 +93,3 @@ main = do
           ("nodeC", ("localhost", 4444)),
           ("nodeD", ("localhost", 4545))
         ]
-        -}

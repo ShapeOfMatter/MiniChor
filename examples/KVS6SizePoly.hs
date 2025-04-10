@@ -45,8 +45,8 @@ kvs :: (KnownSymbol client) => ReplicationStrategy ps -> Member client ps -> Cho
 kvs ReplicationStrategy {setup, primary, handle} client = do
   rigging <- setup
   let go = do
-        request <- (client, readRequest) -~> primary @@ nobody
-        response <- handle rigging singleton request
+        request <- (client, pure readRequest) ~~> primary @@ nobody
+        response <- handle rigging request
         case response of
           Stopped -> return ()
           _ -> do
@@ -63,21 +63,19 @@ naryReplicationStrategy primary backups =
   ReplicationStrategy
     { primary,
       setup = servers `parallel` newIORef (Map.empty :: State),
-      handle = \stateRef pHas request -> do
-        request' <- (primary, (pHas, request)) ~> servers
-        localResponse <- fanOut \server -> enclave (inSuper servers server @@ nobody) do
-          strf <- viewFacet server (First @@ nobody) stateRef
-          r' <- naked request' (server @@ nobody)
-          locally' $ handleRequest strf r'
+      handle = \stateRef request -> do
+        request' <- (primary, request) ~> servers
+        localResponse <- fanOut \server -> othersForget (server @@ nobody) servers request' >>= \r ->
+          enclave (inSuper servers server @@ nobody) do
+            strf <- localize server stateRef
+            r' <- r
+            locally' $ handleRequest strf r'
         responses <- gather servers (primary @@ nobody) localResponse
-        response <- congruently1
-                      (primary @@ nobody)
-                      (refl, responses)
-                      ((\case
+        let response = ((\case
                         [r] -> r
                         rs -> Desynchronization rs
-                       ) . nub . toList)
-        broadcast (primary, response)
+                       ) . nub . toList) <$> responses
+        broadcast First (primary @@ nobody) response
     }
   where
     servers = primary @@ backups
@@ -89,10 +87,8 @@ data ReplicationStrategy ps
   { primary :: Member primary ps,
     setup :: Choreo ps rigging,
     handle ::
-      forall starts.
       rigging ->
-      Member primary starts ->
-      Located starts Request ->
+      Located '[primary] Request ->
       Choreo ps Response
   }
 
@@ -144,9 +140,9 @@ nullReplicationStrategy primary =
   ReplicationStrategy
     { primary,
       setup = primary `locally` newIORef (Map.empty :: State),
-      handle = \stateRef pHas request -> do
-        result <- locally2 primary (singleton, stateRef) (pHas, request) handleRequest
-        broadcast (primary, result)
+      handle = \stateRef request -> do
+        result <- locallyM primary $ handleRequest <$> stateRef <*> request
+        broadcast First (primary @@ nobody) result
     }
 
 naryHumans ::
@@ -158,20 +154,18 @@ naryHumans primary backups =
   ReplicationStrategy
     { primary,
       setup = primary `locally` newIORef (Map.empty :: State),
-      handle = \stateRef pHas request -> do
-        request' <- (primary, (pHas, request)) ~> backups
-        backupResponse <- fanOut \server -> enclave (inSuper backups server @@ nobody) (naked request' (server @@ nobody) >>= locally' . readResponse)
-        localResponse <- locally2 primary (singleton, stateRef) (pHas, request) handleRequest
+      handle = \stateRef request -> do
+        request' <- (primary, request) ~> backups
+        backupResponse <- fanOut \server -> othersForget (server @@ nobody) backups request' >>= \r ->
+          enclave (inSuper backups server @@ nobody) ( r >>= locally' . readResponse )
+        localResponse <- locallyM primary $ handleRequest <$> stateRef <*> request
         responses <- gather backups (primary @@ nobody) backupResponse
-        response <- congruently2
-                      (primary @@ nobody)
-                      (refl, localResponse)
-                      (refl, responses)
-                      (\lr rs -> case nub $ lr : toList rs of
+        let response = (\lr rs -> case nub $ lr : toList rs of
                         [r] -> r
-                        rs' -> Desynchronization rs')
-        response' <- (primary, response) ~> refl
-        naked response' refl
+                        rs' -> Desynchronization rs'
+                       ) <$> localResponse <*> responses
+                      
+        broadcast First (primary @@ nobody) response
     }
   where
     readResponse :: Request -> CLI m Response

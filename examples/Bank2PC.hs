@@ -132,20 +132,20 @@ handleTransaction ::
 handleTransaction (aliceBalance, bobBalance) tx = do
   -- Voting Phase
   txa <- (coordinator, tx) ~> alice @@ nobody
-  va <- locally2 alice (alice, aliceBalance) (alice, txa) \b t -> return $ fst $ validate "alice" b t
+  let va = fst <$> (validate "alice" <$> aliceBalance <*> txa)
   voteAlice <- (alice, va) ~> coordinator @@ nobody
   txb <- (coordinator, tx) ~> bob @@ nobody
-  vb <- locally2 bob (bob, bobBalance) (bob, txb) \b t -> return $ fst $ validate "bob" b t
+  let vb = fst <$> (validate "bob" <$> bobBalance <*> txb)
   voteBob <- (bob, vb) ~> coordinator @@ nobody
 
   -- Check if the transaction can be committed
-  canCommit <- locally2 coordinator (coordinator, voteAlice) (coordinator, voteBob) (\a b -> return (a && b))
+  let canCommit = (&&) <$> voteAlice <*> voteBob
 
   -- Commit Phase
-  broadcast (coordinator, canCommit) >>= \case
+  broadcast First (coordinator @@ nobody) canCommit >>= \case
     True -> do
-      aliceBalance' <- locally2 alice (alice, aliceBalance) (alice, txa) (\b t -> return $ snd $ validate "alice" b t)
-      bobBalance' <- locally2 bob (bob, bobBalance) (bob, txb) (\b t -> return $ snd $ validate "bob" b t)
+      let aliceBalance' = snd <$> (validate "alice" <$> aliceBalance <*> txa)
+      let bobBalance' = snd <$> (validate "bob" <$> bobBalance <*> txb)
       return (canCommit, (aliceBalance', bobBalance'))
     False -> do
       return (canCommit, (aliceBalance, bobBalance))
@@ -155,17 +155,17 @@ bank :: State -> Choreo Participants ()
 bank state = do
   tx <-
     ( client,
-      parse <$> getstr "Command? (alice|bob {amount};)+"
+      pure $ parse <$> getstr "Command? (alice|bob {amount};)+"
       )
-      -~> coordinator
+      ~~> coordinator
       @@ nobody
   (committed, state') <- handleTransaction state tx
   committed' <- (coordinator, committed) ~> client @@ nobody
-  void $ locally1 client (client, committed') (putOutput "Committed?")
-  void $ locally1 alice (alice, (fst state')) (putOutput "Alice's balance:")
-  void $ locally1 bob (bob, (snd state')) (putOutput "Bob's balance:")
-  c <- locally1 coordinator (coordinator, tx) (return . null)
-  broadcast (coordinator, c) >>= (`unless` bank state') -- repeat
+  void $ locallyM client (putOutput "Committed?" <$> committed')
+  void $ locallyM alice (putOutput "Alice's balance:" <$> fst state')
+  void $ locallyM bob (putOutput "Bob's balance:" <$> snd state')
+  let c = null <$> tx
+  broadcast First (coordinator @@ nobody) c >>= (`unless` bank state') -- repeat
 
 -- | `startBank` is a choreography that initializes the states and starts the bank application.
 startBank :: Choreo Participants ()

@@ -8,7 +8,6 @@ module Bookseller1Simple where
 import CLI
 import Choreography
 import Choreography.Network.Http
-import Control.Monad (void)
 import Data (deliveryDateOf, priceOf)
 import System.Environment
 
@@ -25,15 +24,13 @@ bookseller = do
   title <- buyer `locally` getstr "Enter the title of the book to buy:"
 
   title' <- (buyer, title) ~> seller @@ nobody
-  price <- locally2 seller  (seller, database) (seller, title') \d t -> return $ priceOf d t
-  price' <- (seller, price) ~> buyer @@ nobody
-  decision <- locally2 buyer (buyer, price') (buyer, buyer_budget) \p b -> return $ p <= b
+  price' <- (seller, priceOf <$> database <*> title') ~> buyer @@ nobody
+  let decision = (<=) <$> price' <*> buyer_budget
 
-  broadcast (buyer, decision) >>= \case
+  broadcast First (buyer @@ nobody) decision >>= \case
     True -> do
-      deliveryDate <- locally2 seller (seller, database) (seller, title') \d t -> return $ deliveryDateOf d t
-      deliveryDate' <- (seller, deliveryDate) ~> buyer @@ nobody
-      void $ locally1 buyer (buyer, deliveryDate') \dd -> putOutput "The book will be delivered on:" dd
+      deliveryDate' <- (seller, deliveryDateOf <$> database <*> title') ~> buyer @@ nobody
+      locallyM_ buyer (putOutput "The book will be delivered on:" <$> deliveryDate')
     False -> do
       buyer `locally_` putNote "The book's price is out of the budget"
 

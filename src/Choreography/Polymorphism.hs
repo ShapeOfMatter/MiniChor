@@ -121,9 +121,9 @@ newtype Facet a common p = Facet {getFacet :: Located (p ': common) a}
 localize :: (KnownSymbol l) => Member l ls -> Faceted ls common a -> Located (l ': common) a
 localize l (PIndexed f) = getFacet $ f l
 
--- | In a context where unwrapping located values is possible, get the respective value stored in a `Faceted`.
+{--- | In a context where unwrapping located values is possible, get the respective value stored in a `Faceted`.
 viewFacet :: (KnownSymbol l, KnownSymbols qs) => Member l ls -> Subset qs (l ': common) -> Faceted ls common a -> Choreo qs a
-viewFacet l qs f = naked (localize l f) qs
+viewFacet l qs f = naked (localize l f) qs-}
 
 {-
 unsafeFacet :: [Maybe a] -> Member l ls -> Facet a common l -- providing this as a helper function is pretty sketchy, if we don't need it delete it.
@@ -195,7 +195,7 @@ fanIn ::
   Choreo ps (Located rs (Quire qs a))
 fanIn rs body = do
   x <- Quire <$> sequenceP (PIndexed $ Compose . (Const <$>) <$> body)
-  enclave rs $ traverse (\l -> naked l refl) x
+  enclave rs $ sequence x
   --congruently1 rs \un -> stackLeaves $ \q -> un refl (getConst $ x q)
 
 -- | The owner of a t`Quire` sends its elements to their respective parties, resulting in a `Faceted`.
@@ -208,17 +208,36 @@ scatter ::
   Located '[sender] (Quire recipients a) ->
   Choreo census (Faceted recipients '[sender] a)
 scatter sender recipients values = fanOut \r -> do
-  message <- congruently1 (sender @@ nobody) (refl, values) (`getLeaf` r)
+  message <- lMap (`getLeaf` r) (refl, sender @@ nobody, values)
   (sender, message) ~> inSuper recipients r @@ sender @@ nobody
+
+-- | The owner of a t`Quire` sends its elements to their respective parties, resulting in a `Faceted`.
+--   This represents the "scatter" idea common in parallel computing contexts.
+scatter' ::
+  forall census sender recipients a .
+  (KnownSymbol sender, KnownSymbols recipients, Show a, Read a) =>
+  Member sender census ->
+  Subset recipients census ->
+  Located '[sender] (Quire recipients a) ->
+  Choreo census (Faceted recipients '[] a)
+scatter' sender recipients values = scatter sender recipients values >>= cleanFacets recipients (sender @@ nobody)
 
 -- | The many owners of a `Faceted` each send their respective values to a constant list of recipients, resulting in a t`Quire`.
 --   This represents the "gather" idea common in parallel computing contexts.
 gather ::
-  forall census recipients senders a dontcare .
+  forall census recipients senders a.
   (KnownSymbols senders, KnownSymbols recipients, Show a, Read a) =>
   Subset senders census ->
   Subset recipients census ->
-  Faceted senders dontcare a ->
+  Faceted senders '[] a ->
   Choreo census (Located recipients (Quire senders a)) -- could be Faceted senders recipients instead...
-gather senders recipients (PIndexed values) = fanIn recipients \s ->
-  (inSuper senders s, getFacet $ values s) ~> recipients
+gather senders recipients values = fanIn recipients \s ->
+  (inSuper senders s, localize s values) ~> recipients
+
+cleanFacets ::
+  (KnownSymbols ps, KnownSymbols cruft) =>
+  Subset ps census ->
+  Subset cruft census ->
+  Faceted ps cruft a ->
+  Choreo census (Faceted ps '[] a)
+cleanFacets ps cruft f = fanOut \p -> enclaveTo (inSuper ps p @@ cruft) (First @@ nobody) (pure <$> localize p f)

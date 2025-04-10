@@ -12,16 +12,21 @@ import Choreography.Network.Http
 import Control.Monad.IO.Class (MonadIO (liftIO))
 -- For cryptonite
 
-import Control.Monad (void)
 import Crypto.Hash.Algorithms qualified as HASH
 import Crypto.PubKey.RSA qualified as RSA
 import Crypto.PubKey.RSA.OAEP qualified as OAEP
 import Crypto.Random.Types qualified as CRT
 import Data.Bits (shiftL)
+import Data.Bool (bool)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 (ByteString, pack)
 import GHC.TypeLits (KnownSymbol)
 import System.Environment
+
+tupABof3 :: (a, b, c) -> (a, b)
+tupABof3 (a, b, _) = (a, b)
+tup4of5 :: (a, b, c, d, e) -> (a, b, c, d)
+tup4of5 (a, b, c, d, _) = (a, b, c, d)
 
 -- Helpers for RSA encryption
 genKeyPair :: (CRT.MonadRandom m) => m (RSA.PublicKey, RSA.PrivateKey)
@@ -72,7 +77,7 @@ ot2Insecure b1 b2 s = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
   sr <- (receiver, s) ~> sender @@ nobody
-  message <- congruently3 (sender @@ nobody) (refl, sr) (refl, b1) (refl, b2) \sr' b1' b2' -> if sr' then b1' else b2'
+  let message = bool <$> sr <*> b1 <*> b2
   (sender, message) ~> receiver @@ nobody
 
 genKeys :: (CRT.MonadRandom m) => Bool -> m (RSA.PublicKey, RSA.PublicKey, RSA.PrivateKey)
@@ -108,13 +113,13 @@ ot2 bb s = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
 
-  keys <- locally1 receiver (singleton, s) \s' -> liftIO $ genKeys s'
-  pk1pk2 <- congruently1 (receiver @@ nobody) (refl, keys) \(pk1, pk2, _) -> (pk1, pk2)
+  keys <- locallyM receiver $ (liftIO . genKeys) <$> s
+  let pk1pk2 = tupABof3 <$> keys
   pks <- (receiver, pk1pk2) ~> sender @@ nobody
-  encr <- locally2 sender (singleton, bb) (singleton, pks) \(b1, b2) pks' -> liftIO (encryptS pks' b1 b2)
+  encr <- locallyM sender $ (\(b1, b2) pks' -> liftIO $ encryptS pks' b1 b2) <$> bb <*> pks
   encrypted <- (sender, encr) ~> receiver @@ nobody
-  locally3 receiver (singleton, keys) (singleton, s) (singleton, encrypted)
-    \keys' s' encrypted' -> liftIO $ decryptS keys' s' encrypted'
+  locallyM receiver $ (\keys' s' encrypted' -> liftIO $ decryptS keys' s' encrypted')
+                      <$> keys <*> s <*> encrypted
 
 --------------------------------------------------
 -- 1-out-of-4 Oblivious transfer
@@ -143,14 +148,8 @@ ot4Insecure b1 b2 b3 b4 s1 s2 = do
 
   s1r <- (receiver, s1) ~> sender @@ nobody
   s2r <- (receiver, s2) ~> sender @@ nobody
-  b <- enclave (sender @@ nobody) do
-    s1r' <- naked s1r refl
-    s2r' <- naked s2r refl
-    b1' <- naked b1 refl
-    b2' <- naked b2 refl
-    b3' <- naked b3 refl
-    b4' <- naked b4 refl
-    pure $ select4 s1r' s2r' b1' b2' b3' b4'
+  b <- enclave (sender @@ nobody) $
+    select4 <$> s1r <*> s2r <*> b1 <*> b2 <*> b3 <*> b4
   (sender, b) ~> receiver @@ nobody
 
 -- Generate keys for OT, only one has a SK and the rest are fake
@@ -210,22 +209,22 @@ ot4 b1 b2 b3 b4 s1 s2 = do
   let sender = listedFirst :: Member sender '[sender, receiver]
   let receiver = listedSecond :: Member receiver '[sender, receiver]
 
-  keys <- locally2 receiver (singleton, s1) (singleton, s2) \s1' s2' -> liftIO $ genKeys4 s1' s2'
-  pk1234 <- congruently1 (receiver @@ nobody) (refl, keys) \(pk1, pk2, pk3, pk4, _) -> (pk1, pk2, pk3, pk4)
+  keys <- locallyM receiver $ (\s1' s2' -> liftIO $ genKeys4 s1' s2') <$> s1 <*> s2
+  let pk1234 = tup4of5 <$> keys
   pks <- (receiver, pk1234) ~> sender @@ nobody
   encr <- enclave (sender @@ nobody) do
-    pks' <- naked pks refl
-    b1' <- naked b1 refl
-    b2' <- naked b2 refl
-    b3' <- naked b3 refl
-    b4' <- naked b4 refl
+    pks' <- pks
+    b1' <- b1
+    b2' <- b2
+    b3' <- b3
+    b4' <- b4
     locally' $ liftIO $ enc4 pks' b1' b2' b3' b4'
   encrypted <- (sender, encr) ~> receiver @@ nobody
   enclave (receiver @@ nobody) do
-    keys' <- naked keys refl
-    s1' <- naked s1 refl
-    s2' <- naked s2 refl
-    encrypted' <- naked encrypted refl
+    keys' <- keys
+    s1' <- s1
+    s2' <- s2
+    encrypted' <- encrypted
     locally' $ liftIO $ dec4 keys' s1' s2' encrypted'
 
 -- Test function
@@ -234,21 +233,21 @@ otTest = do
   let p1 = listedFirst :: Member p1 '[p1, p2]
   let p2 = listedSecond :: Member p2 '[p1, p2]
   bb <- p1 `locally` return (False, True)
-  b1 <- congruently1 (p1 @@ nobody) (refl, bb) fst
-  b2 <- congruently1 (p1 @@ nobody) (refl, bb) snd
+  let b1 = fst <$> bb
+      b2 = snd <$> bb
   s <- p2 `locally` return False
   otResultI <- ot2Insecure b1 b2 s
-  void $ locally1 p2 (singleton, otResultI) \res -> putOutput "OT2 insecure output:" res
+  locallyM_ p2 $ (putOutput "OT2 insecure output:") <$> otResultI
   otResult <- ot2 bb s
-  void $ locally1 p2 (singleton, otResult) \res -> putOutput "OT2 output:" res
+  locallyM_ p2 $ (putOutput "OT2 output:") <$> otResult
 
   b3 <- p1 `locally` return False
   b4 <- p1 `locally` return True
   s2 <- p2 `locally` return False
   otResultI4 <- ot4Insecure b1 b2 b3 b4 s s2
-  void $ locally1 p2 (singleton, otResultI4) \res -> putOutput "OT4 insecure output:" res
+  locallyM_ p2 $ (putOutput "OT4 insecure output:") <$> otResultI4
   otResult4 <- ot4 b1 b2 b3 b4 s s2
-  void $ locally1 p2 (singleton, otResult4) \res -> putOutput "OT4 output:" res
+  locallyM_ p2 $ (putOutput "OT4 output:") <$> otResult4
 
 main :: IO ()
 main = do

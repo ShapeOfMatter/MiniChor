@@ -30,9 +30,12 @@ import Choreography
 import Choreography.Network.Local
 import Control.Concurrent.Async (mapConcurrently_)
 import CLI (runCLIIO)
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import GHC.TypeLits (KnownSymbol)
+
+fulcrum :: (a -> a -> Bool) -> [a] -> [a]
+fulcrum t (x:xs) = [i | i <- xs, i `t` x]
+fulcrum _ _ = error "called fulcrum with empty list"
 
 reference :: [Int] -> [Int]
 reference [] = []
@@ -55,31 +58,27 @@ quicksort ::
   Located '[a] [Int] ->
   Choreo ps (Located '[a] [Int])
 quicksort a b c lst = do
-  isEmpty <- locally1 a (singleton, lst) \l -> pure (null l)
-  broadcast (a, isEmpty) >>= \case
+  let isEmpty = null <$> lst
+  broadcast First (a @@ nobody) isEmpty >>= \case
     True -> do
       a `locally` pure []
     False -> do
-      sm <- congruently1 (a @@ nobody) (refl, lst) \(x:xs) -> [i | i <- xs, i <= x]
+      let sm = (fulcrum (<=)) <$> lst
       smaller <- (a, sm) ~> b @@ nobody
       smaller' <- quicksort b c a smaller
       smaller'' <- (b, smaller') ~> a @@ nobody
-      bg <- congruently1 (a @@ nobody) (refl, lst) \(x:xs) -> [i | i <- xs, i > x]
+      let bg = (fulcrum (>)) <$> lst
       bigger <- (a, bg) ~> c @@ nobody
       bigger' <- quicksort c a b bigger
       bigger'' <- (c, bigger') ~> a @@ nobody
-      congruently3
-        (a @@ nobody)
-        (refl, smaller'')
-        (refl, lst)
-        (refl, bigger'')
-        \early fulcrum late -> early ++ [head fulcrum] ++ late
+      pure $ (\early original late -> early ++ [head original] ++ late) <$> smaller'' <*> lst <*> bigger''
+        
 
 mainChoreo :: Choreo Participants ()
 mainChoreo = do
   lst <- primary `locally` return [1, 6, 5, 3, 4, 2, 7, 8]
   sorted <- quicksort primary worker1 worker2 lst
-  void $ locally1 primary (primary, sorted) (liftIO . print)
+  locallyM_ primary $ (liftIO . print) <$> sorted
   return ()
 
 main :: IO ()

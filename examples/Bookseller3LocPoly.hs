@@ -21,7 +21,6 @@ module Bookseller3LocPoly where
 import CLI
 import Choreography
 import Choreography.Network.Http
-import Control.Monad (void)
 import Data (deliveryDateOf, priceOf)
 import GHC.TypeLits
 import System.Environment
@@ -39,17 +38,14 @@ bookseller someBuyer = do
   database <- seller `locally` getInput "Enter the book database (for `Read`):"
   buyer_budget <- theBuyer `locally` getInput "Enter your total budget:"
   -- the buyer reads the title of the book and sends it to the seller
-  title <- (theBuyer, getstr "Enter the title of the book to buy") -~> seller @@ nobody
+  title <- (theBuyer, locally' $ getstr "Enter the title of the book to buy") ~> seller @@ nobody
   -- the seller checks the price of the book and sends it to the buyer
-  prc <- locally2 seller (seller, database) (seller, title) (\d t -> return $ priceOf d t)
-  price <- (seller, prc) ~> theBuyer @@ nobody
+  price <- (seller, priceOf <$> database <*> title) ~> theBuyer @@ nobody
 
-  inBuyerBudget <- locally2 theBuyer (singleton, price) (singleton, buyer_budget) (\p b -> return $ p <= b)
-  broadcast (theBuyer, inBuyerBudget) >>= \case
+  broadcast First (theBuyer @@ nobody) ((<=) <$> price <*> buyer_budget) >>= \case
     True -> do
-      dd <- locally2 seller (seller, database) (seller, title) (\d t -> return $ deliveryDateOf d t)
-      deliveryDate <- (seller, dd) ~> theBuyer @@ nobody
-      void $ locally1 theBuyer (singleton, deliveryDate) (putOutput "The book will be delivered on:")
+      deliveryDate <- (seller, deliveryDateOf <$> database <*> title) ~> theBuyer @@ nobody
+      locallyM_ theBuyer (putOutput "The book will be delivered on:" <$> deliveryDate)
     False -> do
       theBuyer `locally_` putNote "The book's price is out of the budget"
 

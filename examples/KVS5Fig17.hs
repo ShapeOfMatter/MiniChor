@@ -13,7 +13,6 @@ module KVS5Fig17 where
 import CLI
 import Choreography
 import Choreography.Network.Http
-import Control.Monad (void)
 import Data (TestArgs, reference)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
@@ -79,26 +78,20 @@ handleRequest handler request = case request of
 setup :: Choreo Servers (Located Servers (Request -> Response))
 setup = do
   handlerName <-
-    (primary, getstr "How should we mock `Get` Requests? (reverse or alphabetize)")
-      -~> primary @@ backup @@ nobody
-  congruently1
-    (primary @@ backup @@ nobody)
-    (refl, handlerName)
-    \hName -> handleRequest (fromMaybe defaultHandler $ hName `lookup` handlers)
+    (primary, locally' $ getstr "How should we mock `Get` Requests? (reverse or alphabetize)")
+      ~> primary @@ backup @@ nobody
+  pure $
+    ( \hName -> handleRequest (fromMaybe defaultHandler $ hName `lookup` handlers) ) <$> handlerName
 
 -- | `kvs` is a choreography that processes a single request located at the client and returns the response.
 -- If the request is a `PUT`, it will forward the request to the backup node.
 kvs :: Choreo Participants ()
 kvs = do
   handler <- enclaveToAll servers setup
-  request <- (client, getInput "Enter the `read`able Request:") -~> primary @@ backup @@ nobody
-  response <- congruently2
-                (primary @@ backup @@ nobody)
-                (refl, handler)
-                (refl, request)
-                ($)
-  response' <- (primary, response) ~> client @@ nobody
-  void $ locally1 client (client, response') (putOutput "Recieved:")
+  request <- (client, locally' $ getInput "Enter the `read`able Request:") ~> primary @@ backup @@ nobody
+  let response = handler <*> request
+  response' <- (primary, servers, response) -~> client @@ nobody
+  locallyM_ client (putOutput "Recieved:" <$> response')
 
 main :: IO ()
 main = do

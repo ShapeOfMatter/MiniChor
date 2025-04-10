@@ -46,17 +46,18 @@ handleRequest ::
   (Located '["primary"] (IORef State), Faceted backups '[] (IORef State)) ->
   Choreo ("primary" ': backups) (Located '["primary"] Response)
 handleRequest request (primaryStateRef, backupsStateRefs) =
-  broadcast (primary, request) >>= \case
+  broadcast First (primary @@ nobody) request >>= \case
     Put key value -> do
       oks <- fanOut \backup -> enclave (inSuper backups backup @@ nobody) do
-               bsr <- viewFacet backup (First @@ nobody) backupsStateRefs
+               bsr <- localize backup backupsStateRefs
                locally' $ handlePut bsr key value
       gathered <- gather backups (primary @@ nobody) oks
-      locally2 primary (primary, gathered) (primary, primaryStateRef) \gathered' stRef ->
+      locallyM primary $ (\gathered' stRef ->
         if all isOk gathered'
           then handlePut stRef key value
           else return errorResponse
-    Get key -> locally1 primary (primary, primaryStateRef) \stRef -> handleGet stRef key
+        ) <$> gathered <*> primaryStateRef
+    Get key -> locallyM primary $ (`handleGet` key) <$> primaryStateRef
   where
     primary :: forall ps. Member "primary" ("primary" ': ps)
     primary = listedFirst
@@ -70,8 +71,7 @@ kvs ::
   Choreo ("client" ': "primary" ': backups) (Located '["client"] Response)
 kvs request stateRefs = do
   request' <- (client, request) ~> primary @@ nobody
-  response <- enclave (primary @@ backups) (handleRequest request' stateRefs)
-                  >>= flatten (listedSecond @@ nobody) (First @@ nobody) (First @@ nobody)
+  response <- enclaveTo (primary @@ backups) (First @@ nobody) (handleRequest request' stateRefs)
   (primary, response) ~> client @@ nobody
   where
     client :: forall ps. Member "client" ("client" ': ps)
@@ -94,7 +94,7 @@ mainChoreo = do
     loop state = do
       request <- locally client $ read @Request <$> liftIO getLine
       response <- kvs request state
-      void $ locally1 client (client, response) (liftIO . putStrLn . ("> " ++) . show)
+      void $ locallyM client $ (liftIO . putStrLn . ("> " ++) . show) <$> response
       loop state
 
 main :: IO ()

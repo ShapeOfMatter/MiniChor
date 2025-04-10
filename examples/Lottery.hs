@@ -81,7 +81,7 @@ lottery clients servers analyst = do
   clientShares <- fanOut \client -> enclave (inSuper clients client @@ nobody) (
       case tySpine @servers of -- I guess this explains to GHC that we have KnownSymbols _servTail? IDK
           TyCons -> do
-            sec <- viewFacet client (First @@ nobody) secret
+            sec <- localize client secret
             locally' do freeShares <- liftIO $ sequence $ pure $ randomIO @Fp
                         return $ (sec - sum freeShares) `qCons` freeShares
     )
@@ -92,7 +92,7 @@ lottery clients servers analyst = do
           fanIn
             (inSuper servers server @@ nobody)
             ( \client -> do
-                serverShare <- congruently1 (inSuper clients client @@ nobody) (refl, localize client clientShares) (`getLeaf` server)
+                let serverShare = (`getLeaf` server) <$> localize client clientShares
                 (inSuper clients client, serverShare) ~> inSuper servers server @@ nobody
             )
       )
@@ -101,27 +101,29 @@ lottery clients servers analyst = do
   -- Salt value
   ψ <- parallel servers (randomRIO (2 ^ (18 :: Int), 2 ^ (20 :: Int)))
   -- 2) Each server computes and publishes the hash α = H(ρ, ψ) to serve as a commitment
-  α <- fanOut \server -> enclave (inSuper servers server @@ nobody) (hash <$> viewFacet server (First @@ nobody) ψ <*> viewFacet server (First @@ nobody) ρ)
+  α <- fanOut \server -> enclave (inSuper servers server @@ nobody) (hash <$> localize server ψ <*> localize server ρ)
   --parallel servers \server un -> pure $ hash (viewFacet un server ) (viewFacet un server )
   α' <- gather servers servers α
   -- 3) Every server opens their commitments by publishing their ψ and ρ to each other
   ψ' <- gather servers servers ψ
   ρ' <- gather servers servers ρ
   -- 4) All servers verify each other's commitment by checking α = H(ρ, ψ)
-  void $ fanOut \server -> enclave (inSuper servers server @@ nobody) do
-         ψ'' <- naked ψ' (server @@ nobody)
-         ρ'' <- naked ρ' (server @@ nobody)
-         α'' <- naked α' (server @@ nobody)
-         unless (α'' == (hash <$> ψ'' <*> ρ'')) $ locally' (liftIO $ throwIO CommitmentCheckFailed)
+  void $ enclave servers $ fanIn refl \server -> do
+         ψ'' <- ψ'
+         ρ'' <- ρ'
+         α'' <- α'
+         unless (α'' == (hash <$> ψ'' <*> ρ'')) $ locally_ server (liftIO $ throwIO CommitmentCheckFailed)
+         pure $ pure ()
   -- 5) If all the checks are successful, then sum random values to get the random index.
-  ω <- congruently1 servers (refl, ρ') (\rho' -> sum rho' `mod` length (toLocs clients))
-  chosenShares <- fanOut \server -> enclave (inSuper servers server @@ nobody) do
-                    ss <- viewFacet server (First @@ nobody) serverShares 
-                    omega <- naked ω (server @@ nobody)
-                    return $ toList ss !! omega
+  let ω = (\rho' -> sum rho' `mod` length (toLocs clients)) <$> ρ'
+  chosenShares <- fanOut \server -> enclaveTo servers (server @@ nobody) (
+                    ω >>= \omega -> enclave (server @@ nobody) do
+                                                          ss <- localize server serverShares 
+                                                          return $ toList ss !! omega
+                    )
   -- Servers forward shares to an analyist.
   allShares <- gather servers (analyst @@ nobody) chosenShares
-  void $ locally1 analyst (singleton, allShares) (putOutput "The answer is:" . sum)
+  locallyM_ analyst $ (putOutput "The answer is:" . sum) <$> allShares
   where
     hash :: Int -> Int -> Digest Crypto.SHA256
     hash ρ ψ = Crypto.hash $ toStrict (Binary.encode ρ <> Binary.encode ψ)

@@ -91,13 +91,12 @@ secretShare ::
   Located '[p] Bool ->
   Choreo parties (Faceted parties '[] Bool)
 secretShare p value = do
-  shares <- locally1 p (singleton, value) (genShares p)
-  PIndexed fs <- scatter p (allOf @parties) shares
-  fanOut (\q -> othersForget (q @@ nobody) (First @@ nobody) . getFacet . fs $ q)
+  shares <- locallyM p (genShares p <$> value)
+  scatter' p (allOf @parties) shares
 
 reveal :: forall ps . (KnownSymbols ps) => Faceted ps '[] Bool -> Choreo ps Bool
-reveal shares = xor <$> (do ss <- gather ps ps shares
-                            naked ss ps)
+reveal shares = do ss <- gather ps ps shares
+                   xor <$> ss
   where
     ps = allOf @ps
 
@@ -117,21 +116,21 @@ fAnd uShares vShares = do
       if toLocTm p_i == p_j_name
         then locally p_j $ pure False
         else do
+          let a_j_i = localize p_i a_j_s
+          let u_i = localize p_i uShares
+          let test a b = xor [a, b]
+          let gLf = ((`getLeaf` p_j) <$>)
           -- bb is the truth table
-          bb <- congruently2
-                  (p_i @@ nobody)
-                  (refl, localize p_i a_j_s)
-                  (refl, localize p_i uShares)
-                  \asdf u_i -> (xor [u_i, getLeaf asdf p_j], getLeaf asdf p_j) -- sorry for the variable name
+          bb <- enclaveToAll (p_i @@ nobody) $ return $ (,) <$> (test <$> u_i <*> gLf a_j_i) <*> (gLf a_j_i)
           -- localize p_j vSHares is party j's share of v
           enclaveTo (p_i @@ p_j @@ nobody) (listedSecond @@ nobody) (ot2 bb $ localize p_j vShares)
-    congruently1 (p_j @@ nobody) (refl, b_i_s) xor
+    return $ xor <$> b_i_s
   fanOut \p_i -> enclave (p_i @@ nobody) do
     let computeShare u v a_js b = xor $ [u && v, b] ++ toList (qModify p_i (const False) a_js)
-    computeShare <$> viewFacet p_i (First @@ nobody) uShares
-                 <*> viewFacet p_i (First @@ nobody) vShares
-                 <*> viewFacet p_i (First @@ nobody) a_j_s
-                 <*> viewFacet p_i (First @@ nobody) bs
+    computeShare <$> localize p_i uShares
+                 <*> localize p_i vShares
+                 <*> localize p_i a_j_s
+                 <*> localize p_i bs
 
 gmw ::
   forall parties .
@@ -160,7 +159,7 @@ gmw circuit = case circuit of
     lResult <- gmw l
     rResult <- gmw r
     fanOut \p -> enclave (p @@ nobody) $
-      xor <$> ((flip (:) <$> (: [])) <$> viewFacet p (First @@ nobody) lResult <*> viewFacet p (First @@ nobody) rResult)
+      xor <$> ((flip (:) <$> (: [])) <$> localize p lResult <*> localize p rResult)
 
 mpc ::
   forall parties .

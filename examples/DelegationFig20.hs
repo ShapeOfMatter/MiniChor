@@ -20,7 +20,6 @@ Inr _ => alices_terminal response;
 
 import CLI
 import Choreography
-import Control.Monad (void)
 import Data (TestArgs, reference)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
@@ -72,20 +71,21 @@ carrollsDefault = const "No Handler"
 
 mainCho :: Choreo Participants ()
 mainCho = do
-  choice <- (alice, getInput "Alice's choice:") -~> alice @@ bob @@ nobody
-  query <- cond (explicitSubset, (refl, choice)) (
+  choice <- (alice, locally' $ getInput "Alice's choice:") ~> alice @@ bob @@ nobody
+  query <- cond (alice @@ bob @@ nobody, explicitSubset, choice) (
       \case
-        False -> (bob, getstr "Bob's query:") -~> alice @@ nobody
+        False -> (bob, locally' $ getstr "Bob's query:") ~> alice @@ nobody
         True -> alice `locally` getstr "Alice's query:"
-    ) >>= flatten (alice @@ nobody) (alice @@ nobody) (alice @@ nobody)
+    ) >>= enclaveTo (alice @@ bob @@ nobody) (First @@ nobody)
   answerer <-
     carroll `locally` do
       handlerName <- getstr "Carrol's function (reverse or alphabetize):"
       return $ fromMaybe carrollsDefault $ handlerName `lookup` carrollsFunctions
   query' <- (alice, query) ~> carroll @@ nobody
-  resp <- congruently2 (carroll @@ nobody) (refl, answerer) (refl, query') ($)
+  let resp = answerer <*> query'
   response <- (carroll, resp) ~> alice @@ bob @@ nobody
-  (_ :: Located '["alice", "bob"] ()) <- cond (explicitSubset, (refl, choice)) \case
-    False -> void $ locally1 bob (bob, response) (putstr "Recieved:")
-    True -> void $ locally1 alice (alice, response) (putstr "Recieved:")
+  let finalize = putstr "Recieved:" <$> response
+  (_ :: Located '["alice", "bob"] ()) <- cond (explicitSubset, explicitSubset, choice) \case
+    False -> othersForget explicitSubset explicitSubset finalize >>= locallyM_ bob
+    True -> othersForget explicitSubset explicitSubset finalize >>= locallyM_ alice
   return ()

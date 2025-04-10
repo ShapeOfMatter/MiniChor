@@ -61,24 +61,21 @@ game = do
   hand1' <- fanIn everyone \(player :: Member player players) -> do
               card1 <- locally dealer (getInput ("Enter random card for " ++ toLocTm player))
               (dealer, card1) ~> everyone
-  hand1 <- naked hand1' everyone
+  hand1 <- hand1' -- odd...
   wantsNextCard <- parallel players do
     putNote $ "All cards on the table: " ++ show hand1
     getInput "I'll ask for another? [True/False]"
   hand2 <- fanOut \(player :: Member player players) ->
     enclave (inSuper players player @@ dealer @@ nobody) do
       let dealer' = listedSecond @"dealer"
-      choice <- broadcast (listedFirst @player, localize player wantsNextCard)
+      choice <- broadcast First (listedFirst @player @@ nobody) (localize player wantsNextCard)
       if choice
         then do
-          cd2 <- locally dealer' (getInput (toLocTm player ++ "'s second card:"))
-          card2 <- broadcast (dealer', cd2)
+          card2 <- broadcast First (dealer' @@ nobody) (locally' $ getInput (toLocTm player ++ "'s second card:"))
           return [getLeaf hand1 player, card2]
         else return [getLeaf hand1 player]
-  tblCrd <- locally dealer (getInput "Enter a single card for everyone:")
-  tableCard <- (dealer, tblCrd) ~> players
-  void $ fanOut \p -> let player = inSuper players p
-                      in enclave (player @@ nobody) do
-    hand <- (:) <$> naked tableCard (p @@ nobody) <*> viewFacet p (First @@ nobody) hand2
-    locally' do putNote $ "My hand: " ++ show hand
-                putOutput "My win result:" $ sum hand > card 19
+  tableCard <- (dealer, locally' $ getInput "Enter a single card for everyone:") ~> players
+  void $ fanOut \p -> do
+    hand <- (:) `lMap` (p @@ nobody, players, tableCard) `lSplat` (First @@ nobody, inSuper players p @@ dealer @@ nobody, localize p hand2)
+    locallyM_ (inSuper players p) $ putNote . ("My hand: " ++) . show <$> hand
+    locallyM (inSuper players p) $ putOutput "My win result:" . (> card 19) . sum <$> hand

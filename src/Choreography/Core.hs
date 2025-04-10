@@ -17,8 +17,7 @@ module Choreography.Core
     runChoreo,
 
     -- * Located values
-    Located (Located),
-    naked
+    Located,
   )
 where
 
@@ -30,10 +29,10 @@ import Data.List (delete)
 import GHC.TypeLits
 
 -- | A single value known to many parties.
-newtype Located (ls :: [LocTy]) a = Located { naked :: forall census. Subset census ls -> Choreo census a }
+type Located (ls :: [LocTy]) a = Choreo ls a
 
 notMine :: Located ls a
-notMine = Located \_ -> pure undefined
+notMine = pure undefined
 
 data Choreo (ps :: [LocTy]) a where
   Locally ::
@@ -43,7 +42,7 @@ data Choreo (ps :: [LocTy]) a where
   Broadcast ::
     (Show a, Read a, KnownSymbol l) =>
     Member l ps -> -- from
-    (Member l ls, Located ls a) -> -- value
+    Located '[l] a -> -- value
     Choreo ps a
   EnclaveTo ::
     (KnownSymbols inner) =>
@@ -84,7 +83,7 @@ runChoreo = handler
   where
     handler :: Choreo census a -> CLI IO a
     handler (Locally m) = m
-    handler (Broadcast _ (ownership, a)) = runChoreo $ naked a (ownership @@ nobody)
+    handler (Broadcast _ a) = runChoreo a
     handler (EnclaveTo (_ :: Subset ls (p ': ps)) _ c) = case tySpine @ls of
       TyNil -> pure notMine
       TyCons -> runChoreo c
@@ -107,11 +106,11 @@ epp c l' = handler c
   where
     handler :: Choreo ps a -> Network (CLI IO) a
     handler (Locally m) = Run $ m
-    handler (Broadcast s (l, a)) = do
+    handler (Broadcast s a) = do
       let sender = toLocTm s
       let otherRecipients = sender `delete` toLocs (refl :: Subset ps ps)
       if sender == l'
-        then do val <- epp (naked a (l @@ nobody)) l'
+        then do val <- epp a l'
                 Send val otherRecipients
                 pure val
         else Recv sender

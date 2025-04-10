@@ -34,7 +34,6 @@ module KVS3HigherOrder where
 import Choreography
 import Choreography.Network.Http
 import CLI (CLI, runCLIIO)
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import Data.Map (Map)
@@ -87,24 +86,24 @@ type ReplicationStrategy a =
 
 -- | `nullReplicationStrategy` is a replication strategy that does not replicate the state.
 nullReplicationStrategy :: ReplicationStrategy (Located '["primary"] (IORef State))
-nullReplicationStrategy request stateRef = locally2 primary (primary, request) (primary, stateRef) handleRequest
+nullReplicationStrategy request stateRef = locallyM primary $ handleRequest <$> request <*> stateRef
 
 -- | `primaryBackupReplicationStrategy` is a replication strategy that replicates the state to a backup server.
 primaryBackupReplicationStrategy ::
   ReplicationStrategy (Located '["primary"] (IORef State), Located '["backup"] (IORef State))
 primaryBackupReplicationStrategy request (primaryStateRef, backupStateRef) = do
   -- relay request to backup if it is mutating (= PUT)
-  broadcast (primary, request) >>= \case
+  broadcast First (primary @@ nobody) request >>= \case
     Put _ _ -> do
       request' <- (primary, request) ~> backup @@ nobody
-      result <- locally2 backup (backup, request') (backup, backupStateRef) handleRequest
+      result <- locallyM backup $ handleRequest <$> request' <*> backupStateRef
       _ <- (backup, result) ~> primary @@ nobody
       return ()
     _ -> do
       return ()
 
   -- process request on primary
-  locally2 primary (primary, request) (primary, primaryStateRef) handleRequest
+  locallyM primary $ handleRequest <$> request <*> primaryStateRef
 
 -- | `kvs` is a choreography that processes a single request at the client and returns the response.
 -- It uses the provided replication strategy to handle the request.
@@ -133,7 +132,7 @@ nullReplicationChoreo = do
     loop stateRef = do
       request <- client `locally` readRequest
       response <- kvs request stateRef nullReplicationStrategy
-      void $ locally1 client (client, response) (liftIO . print)
+      locallyM_ client (liftIO . print <$> response)
       loop stateRef
 
 -- | `primaryBackupChoreo` is a choreography that uses `primaryBackupReplicationStrategy`.
@@ -147,7 +146,7 @@ primaryBackupChoreo = do
     loop stateRefs = do
       request <- client `locally` readRequest
       response <- kvs request stateRefs primaryBackupReplicationStrategy
-      void $ locally1 client (client, response) (liftIO . putStrLn . ("> " ++) . show)
+      locallyM_ client (liftIO . putStrLn . ("> " ++) . show <$> response)
       loop stateRefs
 
 main :: IO ()

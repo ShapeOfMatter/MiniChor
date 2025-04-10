@@ -39,7 +39,6 @@ module DiffieHellman where
 import CLI
 import Choreography
 import Choreography.Network.Http
-import Control.Monad (void)
 import System.Environment
 import System.Random
 
@@ -73,7 +72,7 @@ diffieHellman = do
       x <- randomRIO (200, 1000 :: Int)
       return $ primeNums !! x
   pb <- (alice, pa) ~> bob @@ nobody
-  ga <- locally1 alice (alice, pa) \pa' -> randomRIO (10, pa')
+  ga <- locallyM alice (randomRIO . (10,) <$> pa)
   gb <- (alice, ga) ~> bob @@ nobody
 
   -- alice and bob select secrets
@@ -81,20 +80,17 @@ diffieHellman = do
   b <- bob `locally` randomRIO (200, 1000 :: Integer)
 
   -- alice and bob computes numbers that they exchange
-  a' <- congruently3 (alice @@ nobody) (refl, ga) (refl, a) (refl, pa) \ga' a' pa' -> ga' ^ a' `mod` pa'
-  b' <- congruently3 (bob @@ nobody) (refl, gb) (refl, b) (refl, pb) \gb' b' pb' -> gb' ^ b' `mod` pb'
+  let powMod x y z = x ^ y `mod` z
+  let a' = powMod <$> ga <*> a <*> pa
+  let b' = powMod <$> gb <*> b <*> pb
 
   -- exchange numbers
   a'' <- (alice, a') ~> bob @@ nobody
   b'' <- (bob, b') ~> alice @@ nobody
 
   -- compute shared key
-  void $ locally3 alice (alice, b'') (alice, a) (alice, pa) \b''a aa paa ->
-    let s = b''a ^ aa `mod` paa
-     in putOutput "alice's shared key:" s
-  void $ locally3 bob (bob, a'') (bob, b) (bob, pb) \a''b bb pbb ->
-    let s = a''b ^ bb `mod` pbb
-     in putOutput "bob's shared key:" s
+  locallyM_ alice $ putOutput "alice's shared key:" <$> (powMod <$> b'' <*> a <*> pa)
+  locallyM_ bob $ putOutput "bob's shared key:" <$> (powMod <$> a'' <*> b <*> pb)
 
 main :: IO ()
 main = do

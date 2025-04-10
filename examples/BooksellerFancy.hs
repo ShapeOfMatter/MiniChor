@@ -28,28 +28,24 @@ bookseller ::
   Choreo ("buyer" ': "seller" ': supporters) ()
 bookseller mkDecision = do
   database <- seller `locally` getInput "Enter the book database (for `Read`):"
-  title <- (buyer, getstr "Enter the title of the book to buy:") -~> seller @@ nobody
+  title <- (buyer, locally' $ getstr "Enter the title of the book to buy:") ~> seller @@ nobody
 
   -- the seller checks the price of the book and sends it to the buyer
-  price' <- congruently2 (seller @@ nobody) (refl, database) (refl, title) priceOf
-  price <- (seller, price') ~> buyer @@ nobody
+  price <- (seller, priceOf <$> database <*> title) ~> buyer @@ nobody
 
   -- the buyer and supporters (transactors) make a decision using the `mkDecision` choreography
-  decision <- enclave transactors (mkDecision price)
-                  >>= flatten (buyer @@ nobody) explicitSubset allOf
+  decision <- enclaveTo transactors (buyer @@ nobody) (mkDecision price)
 
   -- if the buyer decides to buy the book, the seller sends the delivery date to the buyer
-  _ <-
+  void $
     enclave buyerAndSeller $
-      broadcast (buyer, decision) >>= \case
+      broadcast First (buyer @@ nobody) decision >>= \case
         True -> do
-          dd <- locally2 seller (seller, database) (seller, title) (\d t -> return $ deliveryDateOf d t)
-          deliveryDate <- (seller, dd) ~> buyer @@ nobody
-          void $ locally1 buyer (buyer, deliveryDate) (putstr "The book will be delivered on:" . show)
+          deliveryDate <- (seller, deliveryDateOf <$> database <*> title) ~> buyer @@ nobody
+          locallyM_ buyer (putstr "The book will be delivered on:" . show <$> deliveryDate)
         False -> do
           void $ buyer `locally` putNote "The book's price is out of the budget"
 
-  return ()
   where
     transactors :: Subset ("buyer" ': supporters) ("buyer" ': "seller" ': supporters)
     transactors = explicitMember @@ (consSuper . consSuper $ refl)
@@ -60,8 +56,7 @@ bookseller mkDecision = do
 -- | `mkDecision1` checks if buyer's budget is greater than the price of the book
 mkDecision1 :: Located '["buyer"] Int -> Choreo ("buyer" ': supporters) (Located '["buyer"] Bool)
 mkDecision1 price = do
-  budget <- buyer `locally` getInput "What are you willing to pay?"
-  locally2 buyer (buyer, price) (buyer, budget) \p b -> return $ p <= b
+  ((<=) <$> price <*>) <$> (buyer `locally` getInput "What are you willing to pay?")
 
 -- | `mkDecision2` asks supporters how much they're willing to contribute and checks
 -- if the buyer's budget is greater than the price of the book minus all supporters' contribution
@@ -70,9 +65,9 @@ mkDecision2 price = do
   budget <- buyer `locally` getInput "What are you willing to pay?"
 
   contribs <- fanIn @supporters explicitSubset $ \supporter ->
-    (Later supporter, getInput "How much you're willing to contribute?") -~> buyer @@ nobody
-  contrib <- locally1 buyer (buyer, contribs) (return . sum)
-  locally3 buyer (buyer, price) (buyer, budget) (buyer, contrib) \p b c -> return $ p <= b + c
+    (Later supporter, locally' $ getInput "How much you're willing to contribute?") ~> buyer @@ nobody
+  let contrib = sum <$> contribs
+  return $ (<=) <$> price <*> ((+) <$> budget <*> contrib)
 
 main :: IO ()
 main = do

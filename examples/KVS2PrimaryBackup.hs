@@ -32,7 +32,6 @@ module KVS2PrimaryBackup where
 import Choreography
 import Choreography.Network.Http
 import CLI (CLI, runCLIIO)
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import Data.Map (Map)
@@ -89,18 +88,18 @@ kvs request (primaryStateRef, backupStateRef) = do
   request' <- (client, request) ~> primary @@ nobody
 
   -- branch on the request
-  broadcast (primary, request') >>= \case
+  broadcast First (primary @@ nobody) request' >>= \case
     -- if the request is a `PUT`, forward the request to the backup node
     Put _ _ -> do
       request'' <- (primary, request') ~> backup @@ nobody
-      ack <- locally2 backup (backup, request'') (backup, backupStateRef) handleRequest
+      ack <- locallyM backup $ handleRequest <$> request'' <*> backupStateRef
       _ <- (backup, ack) ~> primary @@ nobody
       return ()
     _ -> do
       return ()
 
   -- process request on the primary node
-  response <- locally2 primary (primary, request') (primary, primaryStateRef) handleRequest
+  response <- locallyM primary $ handleRequest <$> request' <*> primaryStateRef
 
   -- send response to client
   (primary, response) ~> client @@ nobody
@@ -117,7 +116,7 @@ mainChoreo = do
     loop stateRefs = do
       request <- client `locally` readRequest
       response <- kvs request stateRefs
-      void $ locally1 client (client, response) (liftIO . putStrLn . ("> " ++) . show)
+      locallyM_ client (liftIO . putStrLn . ("> " ++) . show <$> response)
       loop stateRefs
 
 main :: IO ()
