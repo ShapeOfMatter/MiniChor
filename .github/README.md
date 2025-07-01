@@ -1,14 +1,9 @@
 [MultiChor](https://github.com/ShapeOfMatter/MultiChor) is a library for writing choreographic programs in Haskell.
 This is a fork of it for exploring the ramifications of more minimal foundational APIs. 
 
-## Goals
+MiniChor differs from MultiChor in a couple ways.
+Removing the freer monad system may or may not have performance implicaitons, good tooling for measuring that has not yet been identified or developed. 
+The more interesting difference is that in MiniChor "located" values are actually just an alias for choreographies!
+In other words, MiniChor is a choreographic programming system in which computations can be ascribed to lists of participants, and there is no distinct notion of a "located value".
 
-- [x] Remove the freer monad system
-  - Why? I'm not sure this actually offers any "research" advantage...
-- [x] Derive `flatten` and `othersForget`.
-- [x] Replace `congruently` with `naked` (and simplify `locally` and remove `Unwrap(s)`).
-- [x] Make `Located` a derived thing.
-- [x] Demote `Located` to a type alias.
-- [ ] Shim the core to provide the best possible user-facing API.
-- [ ] Do a real usability study to compare MiniChor with MultiChor.
-- [ ] Do performance profiling.
+MiniChor is a research prototype; it's theoretical insights will affect future versions of MultiChor, but no future work is expected in this repository.
